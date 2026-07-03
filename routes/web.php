@@ -55,6 +55,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/fhsis/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     
     Route::get('/fhsis/pho', [PhoController::class, 'pho'])->name('fhsis.pho');
+    Route::get('/fhsis/public-nurse', [PhoController::class, 'nurse'])->name('fhsis.nurse');
 });
 
 require __DIR__.'/settings.php';

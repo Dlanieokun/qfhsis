@@ -22,6 +22,11 @@ class PhoController extends Controller
         ]);
     }
 
+    public function nurse(): Response
+    {
+        return Inertia::render('fhsis/PublicNurse');
+    }
+
     /**
      * Builds the Section A (Family Planning) figures for the M1 form from
      * household_profiles.fpMethodUsed / dob.

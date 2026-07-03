@@ -224,10 +224,53 @@ class SyncController extends Controller
                             $record['updated_at'] = now();
                         }
 
-                        DB::table($dbTableName)->updateOrInsert(
-                            [$pkName => $record[$jsonPkName]],
-                            $record
-                        );
+                        // ==========================================
+                        // INSERT NEW vs UPDATE EXISTING
+                        // ==========================================
+                        // Multiple Android devices sync independently, so a given
+                        // primary key value arriving here might:
+                        //   (a) already exist on the server (this record was synced
+                        //       before, by this device or another one) → UPDATE it, or
+                        //   (b) be brand new to the server → INSERT it.
+                        //
+                        // `updateOrInsert()` looks correct for this, but it performs a
+                        // SELECT followed by an INSERT/UPDATE as two separate queries.
+                        // When two devices push a new record with the same id at
+                        // roughly the same time, both requests can see "no existing
+                        // row" and both attempt an INSERT — the second one then fails
+                        // with a duplicate-key error and the whole sync request blows
+                        // up instead of gracefully updating. We handle both cases
+                        // explicitly and recover from that race by falling back to an
+                        // UPDATE if the INSERT collides.
+                        $pkValue = $record[$jsonPkName];
+
+                        $recordExists = DB::table($dbTableName)
+                            ->where($pkName, $pkValue)
+                            ->exists();
+
+                        if ($recordExists) {
+                            // Already on the server — just update it.
+                            DB::table($dbTableName)
+                                ->where($pkName, $pkValue)
+                                ->update($record);
+                        } else {
+                            // Not on the server yet — insert it as a new row.
+                            try {
+                                DB::table($dbTableName)->insert($record);
+                            } catch (\Illuminate\Database\QueryException $e) {
+                                // 23000 = integrity constraint violation (duplicate PK).
+                                // This means another device's concurrent push just
+                                // inserted a record with the same id — treat this as
+                                // an update instead of failing the whole sync.
+                                if ($e->getCode() === '23000') {
+                                    DB::table($dbTableName)
+                                        ->where($pkName, $pkValue)
+                                        ->update($record);
+                                } else {
+                                    throw $e;
+                                }
+                            }
+                        }
                     }
                 });
             }

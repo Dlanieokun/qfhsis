@@ -13,9 +13,7 @@ return new class extends Migration
     {
         Schema::create('oral_health_care', function (Blueprint $table) {
             $table->id();
-            // Added profile_id to map with Android Room Entity tracking
-            $table->unsignedBigInteger('profile_id')->nullable();
-            $table->foreign('profile_id')->references('id')->on('household_profiles')->onDelete('cascade');
+            $table->integer('profile_id')->nullable()->index();
             
             $table->string('date_of_visit')->nullable();
             $table->string('family_serial')->nullable();
