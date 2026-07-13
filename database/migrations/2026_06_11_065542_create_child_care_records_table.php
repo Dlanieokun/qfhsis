@@ -47,6 +47,8 @@ return new class extends Migration
             $table->string('dewormingDate')->nullable();
             
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

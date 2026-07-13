@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('cervical_cancer_screenings', function (Blueprint $table) {
             $table->id();
-            $table->integer('profile_id')->nullable()->index();
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('date_assessment')->nullable();
             $table->string('family_serial')->nullable();
             $table->string('client_name')->nullable(); // Mapped from Room entity's @ColumnInfo
@@ -32,6 +33,8 @@ return new class extends Migration
             $table->integer('breast_linked_to_care')->nullable();
             
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

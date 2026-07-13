@@ -45,48 +45,7 @@ const emptyForm: Omit<EnvironmentalHealthRecord, 'id'> = {
     remarks: '',
 };
 
-const sampleRecords: EnvironmentalHealthRecord[] = [
-    {
-        id: 'env-1',
-        householdHead: 'Peter Bautista',
-        waterSourceLevel: 'III',
-        otherWaterSource: '',
-        locatedInsideDwelling: true,
-        availableAtLeast12Hrs: true,
-        microDate: '01/20/26',
-        microResultEcoli: false,
-        arsenicTestDate: '',
-        arsenicWithinLimit: false,
-        smdws: true,
-        sanitaryToiletType: 'septic',
-        unsanitaryToiletType: '',
-        toiletShared: false,
-        basicSanitationFacility: true,
-        excretaDisposalType: 'offsite-transport',
-        smss: true,
-        remarks: 'Compliant with SMDWS and SMSS',
-    },
-    {
-        id: 'env-2',
-        householdHead: 'John Villareal',
-        waterSourceLevel: 'I',
-        otherWaterSource: '',
-        locatedInsideDwelling: false,
-        availableAtLeast12Hrs: false,
-        microDate: '',
-        microResultEcoli: false,
-        arsenicTestDate: '',
-        arsenicWithinLimit: false,
-        smdws: false,
-        sanitaryToiletType: '',
-        unsanitaryToiletType: '1',
-        toiletShared: false,
-        basicSanitationFacility: false,
-        excretaDisposalType: '',
-        smss: false,
-        remarks: 'For follow-up sanitation intervention',
-    },
-];
+const sampleRecords: EnvironmentalHealthRecord[] = [];
 
 const inputClass =
     'rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500';

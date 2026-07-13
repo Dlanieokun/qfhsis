@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('family_planning_records', function (Blueprint $table) {
             $table->id();
             $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('registrationDate')->nullable();
             $table->string('familySerialNumber')->nullable();
             $table->text('address')->nullable();
@@ -21,8 +22,11 @@ return new class extends Migration
             $table->string('birthDate')->nullable();
             $table->string('ageGroupCategory')->nullable();
             $table->string('clientType')->nullable();
+            $table->string('methodUsed')->nullable(); // Added to match the Java model
             $table->string('commoditySource')->nullable();
             $table->string('previousMethod')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

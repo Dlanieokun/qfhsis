@@ -16,6 +16,7 @@ return new class extends Migration
             $table->id(); 
             
             $table->string('householdHeadName')->nullable();
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
 
             // Section 1 - Water Source Booleans
             $table->boolean('waterLevelI')->default(false);
@@ -44,6 +45,8 @@ return new class extends Migration
             $table->tinyInteger('safelyManagedSanitationService')->default(0); // 1 = Yes, 0 = No
             $table->tinyInteger('safelyManagedDrinkingWater')->default(0);     // 1 = Yes, 0 = No
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

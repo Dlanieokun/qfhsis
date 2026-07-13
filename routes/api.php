@@ -2,8 +2,10 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\UsersController;
+use App\Http\Controllers\Api\PhoReportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -14,11 +16,37 @@ use App\Http\Controllers\Api\UsersController;
 // Public access point gateway routes
 Route::post('/mobile/login', [UsersController::class, 'login']);
 Route::post('/sync/database', [SyncController::class, 'syncFromAndroid']);
-Route::get('/sync/pull', [SyncController::class, 'syncToAndroid']);
+Route::post('/upload', [SyncController::class, 'uploadFromAndroid']);
+Route::get('/sync/insert/{loop}', [UsersController::class, 'insertloop']);
 
 Route::get('/hello', function () {
     return response()->json(['message' => 'Welcome to your Laravel 12 API!']);
 });
+
+// Location API Definitions
+// Note: Laravel automatically prefixes routes in this file with '/api'
+Route::get('/locations/regions', function () {
+    return DB::table('regions')->orderBy('regDesc')->get();
+});
+Route::get('/locations/provinces/{regCode}', function ($regCode) {
+    return DB::table('provinces')->where('regCode', $regCode)->orderBy('provDesc')->get();
+});
+Route::get('/locations/municipalities/{provCode}', function ($provCode) {
+    return DB::table('municipalities')->where('provCode', $provCode)->orderBy('citymunDesc')->get();
+});
+Route::get('/locations/barangays/{munCode}', function ($munCode) {
+    return DB::table('barangays')->where('citymunCode', $munCode)->orderBy('brgyDesc')->get();
+});
+
+Route::get('/family-planning/report', [PhoReportController::class, 'familyPlaning']);
+Route::get('/maternal-care/report', [PhoReportController::class, 'maternalCare']);
+Route::get('/child-care/report', [PhoReportController::class, 'childCare']);
+Route::get('/oral-health/report', [PhoReportController::class, 'oralHealthCare']);
+Route::get('/non-communicable-disease/report', [PhoReportController::class, 'nonCommunicableDisease']);
+Route::get('/environmental-health/report', [PhoReportController::class, 'environmentalHealth']);
+Route::get('/infectious-disease/report', [PhoReportController::class, 'infectiousDisease']);
+
+    Route::get('/sync/pull', [SyncController::class, 'syncToAndroid']);
 
 // Guarded backend metrics domain profile routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -27,4 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+
+    // Pull now requires a valid bearer token so results can be scoped
+    // to the requesting user's assigned barangay/municipality/province/region.
 });

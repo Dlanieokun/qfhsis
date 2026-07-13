@@ -21,6 +21,8 @@ return new class extends Migration
             $table->string('monthName')->nullable();
             $table->string('scheduledDate')->nullable();
             $table->string('actualDate')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

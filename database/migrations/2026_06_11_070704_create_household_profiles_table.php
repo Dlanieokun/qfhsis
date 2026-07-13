@@ -37,12 +37,16 @@ return new class extends Migration
             $table->string('fpMethodUsed')->nullable();
             $table->string('education')->nullable();
             $table->string('religion')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('household_profiles');
+        Schema::table('household_profiles', function (Blueprint $table) {
+            $table->dropColumn(['isSynced', 'updatedAt']);
+        });
     }
 };

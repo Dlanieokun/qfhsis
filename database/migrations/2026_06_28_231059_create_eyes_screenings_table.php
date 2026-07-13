@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('eyes_screenings', function (Blueprint $table) {
             $table->id();
-            $table->integer('profile_id')->nullable()->index();
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('date_screening')->nullable();
             $table->string('family_serial')->nullable();
             $table->string('name')->nullable();
@@ -26,6 +27,8 @@ return new class extends Migration
             $table->string('eye_disease_code')->nullable();
             $table->string('date_referred')->nullable();
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

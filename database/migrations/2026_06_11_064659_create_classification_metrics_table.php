@@ -22,6 +22,8 @@ return new class extends Migration
             $table->string('q3_class')->nullable();
             $table->string('q4_age')->nullable();
             $table->string('q4_class')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

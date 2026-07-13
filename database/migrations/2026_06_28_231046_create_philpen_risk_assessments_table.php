@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('philpen_risk_assessments', function (Blueprint $table) {
             $table->id();
-            $table->integer('profile_id')->nullable()->index();
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('date_assessment')->nullable();
             $table->string('family_serial')->nullable();
             $table->string('name')->nullable();
@@ -53,6 +54,8 @@ return new class extends Migration
             $table->json('monthly_diabetic_meds')->nullable(); // MonthMed[] arrays
 
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

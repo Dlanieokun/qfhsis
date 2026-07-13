@@ -48,6 +48,8 @@ return new class extends Migration
             $table->string('ironDate2nd')->nullable();
             $table->string('ironTabs3rd')->nullable();
             $table->string('ironDate3rd')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

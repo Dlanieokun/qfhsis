@@ -2,9 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Builds the data for the "Public Health Nurse" FHSIS dashboard
@@ -23,25 +30,543 @@ use Inertia\Response;
  */
 class PublicNurseController extends Controller
 {
-    public function publicNurse(): Response
+    public function validateReport(Request $request)
     {
-        return Inertia::render('fhsis/public-nurse', [
-            'familyPlanning' => $this->familyPlanning(),
-            'maternalCare' => $this->maternalCare(),
-            'childCare' => $this->childCare(),
-            'oralHealth' => $this->oralHealth(),
-            'nonCommunicableDisease' => $this->nonCommunicableDisease(),
-            'geriatricHealth' => $this->geriatricHealth(),
-            'infectiousDisease' => $this->infectiousDisease(),
-            'wash' => $this->wash(),
+        $request->validate([
+            'month' => 'required|string',
+            'year'  => 'required|string',
         ]);
+
+        // Gather the raw codes from the frontend payload
+        $regCode  = $request->input('region');
+        $provCode = $request->input('province');
+        $munCode  = $request->input('municipality');
+
+        // Resolve the descriptive name for the Region
+        $regionName = null;
+        if ($regCode) {
+            $regionName = DB::table('regions')
+                ->where('regCode', $regCode)
+                ->value('regDesc');
+        }
+
+        // Resolve the descriptive name for the Province
+        $provinceName = null;
+        if ($provCode) {
+            $provinceName = DB::table('provinces')
+                ->where('provCode', $provCode)
+                ->value('provDesc');
+        }
+
+        // Resolve the descriptive name for the Municipality
+        $municipalityName = null;
+        if ($munCode) {
+            $municipalityName = DB::table('municipalities')
+                ->where('citymunCode', $munCode)
+                ->value('citymunDesc');
+        }
+
+        // Persist or update the report entry using text labels
+        DB::table('submit_reports')->updateOrInsert(
+            [
+                'user_id'      => Auth::id(),
+                'month'        => $request->input('month'),
+                'year'         => $request->input('year'),
+                'region'       => $regionName,        // Saves e.g., "REGION VIII"
+                'province'     => $provinceName,      // Saves e.g., "LEYTE"
+                'municipality' => $municipalityName,  // Saves e.g., "PALO"
+            ],
+            [
+                'updated_at'   => now(),
+                'created_at'   => now(),
+            ]
+        );
+
+        return redirect()->back()->with('success', 'Report successfully validated and saved with description text.');
+    }
+
+    public function publicNurse(Request $request): Response
+    {
+        $month = $request->query('month') ?: now()->format('m');
+        $year = $request->query('year') ?: now()->format('Y');
+        
+        // Retrieve active location filters from query parameters
+        $regCode = $request->query('region');
+        $provCode = $request->query('province');
+        $citymunCode = $request->query('municipality');
+        $brgyCode = $request->query('barangay');
+
+        // Default configuration for Region VIII and Leyte if not provided
+        if (!$request->has('region')) {
+            $defaultRegion = DB::table('regions')->where('regDesc', 'like', '%VIII%')->first();
+            $regCode = $defaultRegion ? $defaultRegion->regCode : null;
+
+            if ($regCode) {
+                $defaultProv = DB::table('provinces')
+                    ->where('regCode', $regCode)
+                    ->where('provDesc', 'like', '%LEYTE%')
+                    ->where('provDesc', 'not like', '%SOUTHERN%')
+                    ->first();
+                $provCode = $defaultProv ? $defaultProv->provCode : null;
+            }
+        }
+
+        // Fetch dynamic selection choices
+        $regions = DB::table('regions')->select('regCode', 'regDesc')->get();
+        $provinces = $regCode ? DB::table('provinces')->where('regCode', $regCode)->select('provCode', 'provDesc')->get() : collect();
+        $municipalities = $provCode ? DB::table('municipalities')->where('provCode', $provCode)->select('citymunCode', 'citymunDesc')->get() : collect();
+        $barangays = $citymunCode ? DB::table('barangays')->where('citymunCode', $citymunCode)->select('brgyCode', 'brgyDesc')->get() : collect();
+
+        // Check descriptions to match against text columns in submit_reports table
+        $regionDesc = $regCode ? DB::table('regions')->where('regCode', $regCode)->value('regDesc') : null;
+        $provinceDesc = $provCode ? DB::table('provinces')->where('provCode', $provCode)->value('provDesc') : null;
+        $municipalityDesc = $citymunCode ? DB::table('municipalities')->where('citymunCode', $citymunCode)->value('citymunDesc') : null;
+
+        // Check if a entry already exists for this exact filter configuration
+        $isValidated = DB::table('submit_reports')
+            ->where('month', $month)
+            ->where('year', $year)
+            ->where('region', $regionDesc)
+            ->where('province', $provinceDesc)
+            ->where('municipality', $municipalityDesc)
+            ->exists();
+
+        return Inertia::render('fhsis/PublicNurse', [
+            'familyPlanning' => $this->familyPlanning($month, $year),
+            'maternalCare' => $this->maternalCare($month, $year),
+            'childCare' => $this->childCare($month, $year),
+            'oralHealth' => $this->oralHealth($month, $year),
+            'nonCommunicableDisease' => $this->nonCommunicableDisease($month, $year),
+            'geriatricHealth' => $this->geriatricHealth($month, $year),
+            'infectiousDisease' => $this->infectiousDisease($month, $year),
+            'wash' => $this->wash(),
+            'regions' => $regions,
+            'provinces' => $provinces,
+            'municipalities' => $municipalities,
+            'barangays' => $barangays,
+            'isValidated' => $isValidated, // Pass boolean flag to frontend
+            'filters' => [
+                'month' => $month,
+                'year' => $year,
+                'region' => $regCode,
+                'province' => $provCode,
+                'municipality' => $citymunCode,
+                'barangay' => $brgyCode,
+            ],
+        ]);
+    }
+
+    /* =====================================================================
+     * M1 - All Programs (consolidated xlsx export)
+     * ===================================================================*/
+
+    /**
+     * Generates "M1_All_Programs.xlsx" by loading the actual official M1
+     * template (resources/templates/M1_All_Programs.xlsx — the same layout,
+     * labels, merges, and SUM formulas as the paper/DOH form) and filling in
+     * only the raw input cells with data from PhoController@getM1ReportData.
+     *
+     * We deliberately do NOT build the sheet from scratch: the template is
+     * the source of truth for layout, so every value is written into the
+     * exact cell the real form expects, and any cell that already contains
+     * a formula (subtotal/grand-total rollups baked into the template) is
+     * left untouched — Excel recalculates those automatically when the file
+     * is opened. See put()/putRow() below.
+     *
+     * Indicators the app doesn't yet capture (schema gaps documented in
+     * PhoController, e.g. HIV-AIDS/STI, Vital Statistics, resident vs.
+     * TRANS-IN/OUT splits) are simply never written to, so they stay blank
+     * exactly as in the blank template.
+     */
+    public function m1AllDownload(Request $request): StreamedResponse
+    {
+        $data = app(PhoController::class)->getM1ReportData();
+
+        $templatePath = resource_path('templates/M1_All_Programs.xlsx');
+        $spreadsheet = IOFactory::load($templatePath);
+        $sheet = $spreadsheet->getSheetByName('M1_All Programs') ?? $spreadsheet->getActiveSheet();
+
+        $this->fillHeader($sheet, $request->query('month'), $request->query('year'));
+        $this->fillSectionA($sheet, $data['familyPlanning']);
+        $this->fillSectionB($sheet, $data['maternalCare']);
+        $this->fillSectionC($sheet, $data['childCare']);
+        $this->fillSectionD($sheet, $data['oralHealth']);
+        $this->fillSectionE($sheet, $data['nonCommunicableDisease']);
+        $this->fillSectionF($sheet, $data['environmentalHealth']);
+        $this->fillSectionG($sheet, $data['infectiousDisease']);
+
+        $filename = 'M1_All_Programs_' . now()->format('Ymd_His') . '.xlsx';
+        $writer = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'max-age=0',
+        ]);
+    }
+
+    /* ---- template cover-page header -------------------------------------- */
+
+    private function fillHeader(Worksheet $sheet, ?string $month, ?string $year): void
+    {
+        $user = Auth::user();
+        $monthName = $month ? Carbon::createFromDate(null, (int) $month, 1)->format('F') : now()->format('F');
+        $year = $year ?: now()->format('Y');
+
+        $this->put($sheet, 'D1', "FHSIS REPORT for the Month {$monthName}  Year {$year}");
+        $this->put($sheet, 'D2', 'Name of Barangay: ' . ($user->barangay ?? ''));
+        $this->put($sheet, 'D3', 'Name of BHS: ' . ($user->assigned_facility ?? ''));
+        $this->put($sheet, 'D4', 'Name of Municipality/City: ' . ($user->municipality ?? ''));
+        $this->put($sheet, 'D5', 'Name of Province: ' . ($user->province ?? ''));
+    }
+
+    /* ---- Section A. Family Planning --------------------------------------
+     * Template rows: 11 (Demand Satisfied), 16-33 (per-method current users,
+     * "Current User (End of the Month)" column group), 34 (Total). */
+
+    private function fillSectionA(Worksheet $sheet, array $fp): void
+    {
+        $this->putRow($sheet, 11, ['E', 'I', 'M', 'Q'], $this->ageVals($fp['demandSatisfied']));
+
+        $methodRows = [
+            16 => 'btl', 17 => 'nsv', 18 => 'condom',
+            20 => 'pills-pop', 21 => 'pills-coc', 22 => 'injectable',
+            24 => 'implant-interval', 25 => 'implant-pp',
+            27 => 'iud-interval', 28 => 'iud-pp',
+            29 => 'lam', 30 => 'bbt', 31 => 'cmm', 32 => 'stm', 33 => 'sdm',
+        ];
+
+        $totals = ['10-14' => 0, '15-19' => 0, '20-49' => 0, 'total' => 0];
+        foreach ($methodRows as $row => $key) {
+            $bracket = $fp['currentUsersByMethod'][$key] ?? null;
+            if (! $bracket) {
+                continue;
+            }
+            $this->putRow($sheet, $row, ['R', 'S', 'T', 'U'], $this->ageVals($bracket));
+            foreach ($totals as $k => $v) {
+                $totals[$k] += $bracket[$k];
+            }
+        }
+        $this->putRow($sheet, 34, ['R', 'S', 'T', 'U'], $this->ageVals($totals));
+    }
+
+    /* ---- Section B. Maternal Care and Services --------------------------- */
+
+    private function fillSectionB(Worksheet $sheet, array $mc): void
+    {
+        // Prenatal: LEFT column (age bracket) rows 40/48-50/52-53.
+        $p = $mc['prenatal'];
+        $this->putRow($sheet, 40, ['B', 'C', 'D', 'E'], $this->ageVals($p['anc8Completed']));
+        $this->putRow($sheet, 48, ['B', 'C', 'D', 'E'], $this->ageVals($p['nutritionNormal']));
+        $this->putRow($sheet, 49, ['B', 'C', 'D', 'E'], $this->ageVals($p['nutritionLow']));
+        $this->putRow($sheet, 50, ['B', 'C', 'D', 'E'], $this->ageVals($p['nutritionHigh']));
+        $this->putRow($sheet, 52, ['B', 'C', 'D', 'E'], $this->ageVals($p['td2PlusFirstPregnancy']));
+        $this->putRow($sheet, 53, ['B', 'C', 'D', 'E'], $this->ageVals($p['td2Plus']));
+
+        // Prenatal: RIGHT column (age bracket) rows 40-54.
+        $this->putRow($sheet, 40, ['Q', 'R', 'S', 'T'], $this->ageVals($p['ifaCompleted']));
+        $this->putRow($sheet, 41, ['Q', 'R', 'S', 'T'], $this->ageVals($p['mmCompleted']));
+        $this->putRow($sheet, 42, ['Q', 'R', 'S', 'T'], $this->ageVals($p['ccCompleted']));
+        $this->putRow($sheet, 44, ['Q', 'R', 'S', 'T'], $this->ageVals($p['anemiaScreened']));
+        $this->putRow($sheet, 45, ['Q', 'R', 'S', 'T'], $this->ageVals($p['anemiaDiagnosed']));
+        $this->putRow($sheet, 47, ['Q', 'R', 'S', 'T'], $this->ageVals($p['gdmScreened']));
+        $this->putRow($sheet, 48, ['Q', 'R', 'S', 'T'], $this->ageVals($p['gdmDiagnosed']));
+        $this->putRow($sheet, 50, ['Q', 'R', 'S', 'T'], $this->ageVals($p['dewormed']));
+        $this->putRow($sheet, 52, ['Q', 'R', 'S', 'T'], $this->ageVals($p['bpMeasured']));
+        $this->putRow($sheet, 53, ['Q', 'R', 'S', 'T'], $this->ageVals($p['highBpOrDanger']));
+        $this->putRow($sheet, 54, ['Q', 'R', 'S', 'T'], $this->ageVals($p['referred']));
+
+        // Intrapartum: the template's LEFT column is bracketed by the
+        // MOTHER's age, which this app doesn't tally for intrapartum (it
+        // tallies by newborn sex instead — see PhoController@getMaternalCareData),
+        // so only the aggregate "Total" cell is filled in; per-bracket cells
+        // are left blank rather than guessed. The RIGHT column (birth weight,
+        // rows 65-67) is genuinely sex-based and maps directly.
+        $ip = $mc['intrapartum'];
+        $this->put($sheet, 'E58', $ip['totalDeliveries']['total']);
+        $this->put($sheet, 'E59', $ip['attendantPhysician']['total'] + $ip['attendantNurse']['total'] + $ip['attendantMidwife']['total']);
+        $this->put($sheet, 'E60', $ip['attendantPhysician']['total']);
+        $this->put($sheet, 'E61', $ip['attendantNurse']['total']);
+        $this->put($sheet, 'E62', $ip['attendantMidwife']['total']);
+        $this->put($sheet, 'E63', $ip['facilityPublic']['total'] + $ip['facilityPrivate']['total']);
+        $this->put($sheet, 'E64', $ip['facilityPublic']['total']);
+        $this->put($sheet, 'E65', $ip['facilityPrivate']['total']);
+        $this->put($sheet, 'E66', $ip['deliveryVaginal']['total'] + $ip['deliveryCesarean']['total'] + $ip['deliveryCombined']['total']);
+        $this->put($sheet, 'E67', $ip['deliveryVaginal']['total']);
+        $this->put($sheet, 'E68', $ip['deliveryCesarean']['total']);
+        $this->put($sheet, 'E69', $ip['deliveryCombined']['total']);
+
+        $this->put($sheet, 'T58', $ip['outcomeFullTerm']['total'] + $ip['outcomePreTerm']['total'] + $ip['outcomeFetalDeath']['total'] + $ip['outcomeAbortion']['total']);
+        $this->put($sheet, 'T59', $ip['outcomeFullTerm']['total']);
+        $this->put($sheet, 'T60', $ip['outcomePreTerm']['total']);
+        $this->put($sheet, 'T61', $ip['outcomeFetalDeath']['total']);
+        $this->put($sheet, 'T62', $ip['outcomeAbortion']['total']);
+
+        $this->putRow($sheet, 65, ['Q', 'R'], $this->sexVals($ip['birthWeightNormal']));
+        $this->putRow($sheet, 66, ['Q', 'R'], $this->sexVals($ip['birthWeightLow']));
+        $this->putRow($sheet, 67, ['Q', 'R'], $this->sexVals($ip['birthWeightUnknown']));
+
+        // Postpartum: both columns are age-bracketed (this app does tally
+        // postpartum by the mother's age bracket).
+        $pp = $mc['postpartum'];
+        $this->putRow($sheet, 74, ['B', 'C', 'D', 'E'], $this->ageVals($pp['pnc4Completed']));
+        $this->putRow($sheet, 74, ['Q', 'R', 'S'], $this->ageVals($pp['ifaCompleted']));
+        $this->putRow($sheet, 75, ['Q', 'R', 'S'], $this->ageVals($pp['vitACompleted']));
+        $this->putRow($sheet, 77, ['Q', 'R', 'S'], $this->ageVals($pp['bpMeasured']));
+        $this->putRow($sheet, 78, ['Q', 'R', 'S'], $this->ageVals($pp['highBpOrDanger']));
+        $this->putRow($sheet, 79, ['Q', 'R', 'S'], $this->ageVals($pp['referred']));
+    }
+
+    /* ---- Section C. Child Care and Services ------------------------------- */
+
+    private function fillSectionC(Worksheet $sheet, array $cc): void
+    {
+        $imm = $cc['imm0_11'];
+        foreach ([86 => 'cpab', 87 => 'bcg24h', 88 => 'bcgLate', 89 => 'hepB24h', 90 => 'hepBLate', 91 => 'dpt1', 92 => 'dpt2', 93 => 'dpt3', 94 => 'opv1'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($imm[$key]));
+        }
+        foreach ([86 => 'opv2', 87 => 'opv3', 88 => 'ipv1', 89 => 'ipv2', 90 => 'pcv1', 91 => 'pcv2', 92 => 'pcv3', 93 => 'mmr1'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($imm[$key]));
+        }
+
+        $prev = $cc['immPrev'];
+        foreach ([96 => 'dpt1', 97 => 'dpt2', 98 => 'dpt3', 99 => 'opv1', 100 => 'opv2', 101 => 'opv3', 102 => 'ipv1', 103 => 'ipv2'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($prev[$key]));
+        }
+        foreach ([96 => 'pcv1', 97 => 'pcv2', 98 => 'pcv3', 99 => 'mmr1', 100 => 'mmr2', 101 => 'fic', 102 => 'cic'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($prev[$key]));
+        }
+
+        $school = $cc['schoolImm'];
+        foreach ([107 => 'grade1Td', 108 => 'grade1Mr', 109 => 'grade7Td', 110 => 'grade7Mr'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($school[$key]));
+        }
+        foreach ([107 => 'hpv1Sbi', 108 => 'hpv1Cbi', 109 => 'hpv2Cbi'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($school[$key]));
+        }
+
+        $nut = $cc['nutrition'];
+        foreach ([114 => 'breastfeedingInit', 115 => 'lbwIronComplete', 116 => 'vitA6to11', 117 => 'vitA12to59TwoDoses'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($nut[$key]));
+        }
+        foreach ([114 => 'mnp6to11', 115 => 'mnp12to23', 116 => 'lns6to11', 117 => 'lns12to23'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($nut[$key]));
+        }
+
+        $n2 = $cc['nutrition2'];
+        foreach ([120 => 'seen0to59', 121 => 'mamIdentified', 122 => 'samIdentified', 123 => 'mamEnrolled', 124 => 'mamCured', 125 => 'mamNonCured', 126 => 'mamDefaulted'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($n2[$key]));
+        }
+        foreach ([120 => 'mamDied', 121 => 'samAdmitted', 122 => 'samCured', 123 => 'samNonCured', 124 => 'samDefaulted', 125 => 'samDied'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($n2[$key]));
+        }
+
+        $sick = $cc['mgmtSick'];
+        foreach ([130 => 'sick6to11Seen', 131 => 'vitA6to11Sick', 132 => 'sick12to59Seen', 133 => 'vitA12to59Sick', 134 => 'diarrhea0to59Seen', 135 => 'orsOnly', 136 => 'orsZinc'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($sick[$key]));
+        }
+        // Row 131 right (antibioticAny) is a template rollup formula over
+        // 132-135, so it's intentionally skipped here.
+        foreach ([130 => 'pneumonia0to59Seen', 132 => 'amoxDrops', 133 => 'amoxClav', 134 => 'cefuroxime', 135 => 'otherAntibiotic'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q', 'R'], $this->sexVals($sick[$key]));
+        }
+    }
+
+    /* ---- Section D. Oral Health Care Services ----------------------------- */
+
+    private function fillSectionD(Worksheet $sheet, array $oh): void
+    {
+        $this->putRow($sheet, 141, ['B', 'C'], $this->sexVals($oh['infantFirstVisit']));
+
+        // LEFT: "1st visit" facility/non-facility rows per bracket (the
+        // combined parent row above each pair is a template SUM formula).
+        foreach ([
+            'children1_4' => [143, 144],
+            'children5_9' => [146, 147],
+            'adolescents10_19' => [149, 150],
+            'adults20_59' => [152, 153],
+            'seniors60plus' => [155, 156],
+        ] as $key => [$facilityRow, $nonFacilityRow]) {
+            $this->putRow($sheet, $facilityRow, ['B', 'C'], $this->sexVals($oh['firstVisitFacility'][$key]));
+            $this->putRow($sheet, $nonFacilityRow, ['B', 'C'], $this->sexVals($oh['firstVisitNonFacility'][$key]));
+        }
+
+        // RIGHT: "completed 2 visits" facility/non-facility rows (columns
+        // shift to P/Q/R here, matching the template's own header for this
+        // sub-table); again the parent SUM row above each pair is skipped.
+        foreach ([
+            'children1_4' => [142, 143],
+            'children5_9' => [145, 146],
+            'adolescents10_19' => [148, 149],
+            'adults20_59' => [151, 152],
+            'seniors60plus' => [154, 155],
+        ] as $key => [$facilityRow, $nonFacilityRow]) {
+            $this->putRow($sheet, $facilityRow, ['P', 'Q'], $this->sexVals($oh['completed2VisitsFacility'][$key]));
+            $this->putRow($sheet, $nonFacilityRow, ['P', 'Q'], $this->sexVals($oh['completed2VisitsNonFacility'][$key]));
+        }
+    }
+
+    /* ---- Section E. Non-Communicable Diseases ----------------------------- */
+
+    private function fillSectionE(Worksheet $sheet, array $ncd): void
+    {
+        $l2059 = $ncd['lifestyle2059'];
+        $l60plus = $ncd['lifestyle60plus'];
+        $lifestyleRows = [
+            167 => 'currentSmoker', 168 => 'smokerTobacco', 169 => 'smokerVaporized', 170 => 'smokerBoth',
+            171 => 'providedBti', 172 => 'bingeAlcohol', 173 => 'insufficientPa', 174 => 'unhealthyDiet',
+            175 => 'overweight', 176 => 'obese',
+        ];
+        foreach ($lifestyleRows as $row => $key) {
+            $this->putRow($sheet, $row, ['B', 'C'], $this->sexVals($l2059[$key]));
+            $this->putRow($sheet, $row, ['P', 'Q'], $this->sexVals($l60plus[$key]));
+        }
+        // CVD/Hypertension and Diabetes (rows 178-191) are never populated by
+        // PhoController (tallies are commented out pending a data-model
+        // decision), so nothing is written there — left blank as in the
+        // template rather than reporting false zeros.
+
+        $bl = $ncd['blindness'];
+        $this->putRow($sheet, 196, ['B', 'C'], $this->sexVals($bl['screened0_9']));
+        $this->putRow($sheet, 197, ['B', 'C'], $this->sexVals($bl['screened10_19']));
+        $this->putRow($sheet, 198, ['B', 'C'], $this->sexVals($bl['screened20_59']));
+        $this->putRow($sheet, 199, ['B', 'C'], $this->sexVals($bl['screened60plus']));
+
+        // Mental health: one row (220) with 4 age brackets x male/female.
+        $mh = $ncd['mentalHealth'];
+        $this->putRow($sheet, 220, ['B', 'C'], $this->sexVals($mh['screened0_9']));
+        $this->putRow($sheet, 220, ['D', 'E'], $this->sexVals($mh['screened10_19']));
+        $this->putRow($sheet, 220, ['F', 'G'], $this->sexVals($mh['screened20_59']));
+        $this->putRow($sheet, 220, ['H', 'I'], $this->sexVals($mh['screened60plus']));
+
+        $cv = $ncd['cervical'];
+        $this->put($sheet, 'D229', $cv['via']);
+        $this->put($sheet, 'D230', $cv['papSmear']);
+        $this->put($sheet, 'D231', $cv['hpvDna']);
+        $this->put($sheet, 'D232', $cv['assessedOnly']);
+        $this->put($sheet, 'D233', $cv['suspicious']);
+        $this->put($sheet, 'D235', $cv['linkedTreated']);
+        $this->put($sheet, 'D236', $cv['linkedReferred']);
+
+        $br = $ncd['breast'];
+        $this->put($sheet, 'T228', $br['seen']);
+        $this->put($sheet, 'T229', $br['highRiskOrSymptomatic']);
+        $this->put($sheet, 'T231', $br['providedCbe']);
+        $this->put($sheet, 'T232', $br['providedMammogram']);
+        $this->put($sheet, 'T234', $br['remarkableCbe']);
+        $this->put($sheet, 'T235', $br['remarkableMammogram']);
+    }
+
+    /* ---- Section F. Environmental Health and Sanitation ------------------- */
+
+    private function fillSectionF(Worksheet $sheet, array $envi): void
+    {
+        $w = $envi['water'];
+        $this->put($sheet, 'B251', $w['levelI']);
+        $this->put($sheet, 'B252', $w['levelII']);
+        $this->put($sheet, 'B253', $w['levelIII']);
+        $this->put($sheet, 'B254', $w['safelyManaged']);
+
+        $s = $envi['sanitation'];
+        $this->put($sheet, 'P251', $s['pourFlushSeptic']);
+        $this->put($sheet, 'P252', $s['pourFlushSewer']);
+        $this->put($sheet, 'P253', $s['vip']);
+        $this->put($sheet, 'P254', $s['safelyManagedSanitation']);
+    }
+
+    /* ---- Section G. Infectious Disease Prevention and Control ------------- */
+
+    private function fillSectionG(Worksheet $sheet, array $inf): void
+    {
+        $f = $inf['filariasis'];
+        $this->putRow($sheet, 260, ['B', 'C'], $this->sexVals($f['examinedNbe']));
+        $this->putRow($sheet, 261, ['B', 'C'], $this->sexVals($f['examinedRdt']));
+        $this->putRow($sheet, 264, ['B', 'C'], $this->sexVals($f['positiveNbe']));
+        $this->putRow($sheet, 265, ['B', 'C'], $this->sexVals($f['positiveRdt']));
+        $this->putRow($sheet, 271, ['B', 'C'], $this->sexVals($f['lymphedema']));
+        $this->putRow($sheet, 276, ['B', 'C'], $this->sexVals($f['elephantiasis']));
+        $this->putRow($sheet, 263, ['Q', 'R'], $this->sexVals($f['hydrocele']));
+        $this->putRow($sheet, 268, ['Q', 'R'], $this->sexVals($f['receivedMda']));
+
+        $r = $inf['rabies'];
+        $this->putRow($sheet, 287, ['B', 'C'], $this->sexVals($r['animalBites']));
+        $this->putRow($sheet, 287, ['Q', 'R'], $this->sexVals($r['rabiesDeaths']));
+
+        $sc = $inf['schistosomiasis'];
+        $this->putRow($sheet, 291, ['B', 'C'], $this->sexVals($sc['patientsSeen']));
+        $this->putRow($sheet, 297, ['B', 'C'], $this->sexVals($sc['suspectedCases']));
+        $this->putRow($sheet, 308, ['B', 'C'], $this->sexVals($sc['suspectedTreated']));
+        $this->putRow($sheet, 316, ['B', 'C'], $this->sexVals($sc['confirmedComplicated']));
+        $this->putRow($sheet, 322, ['B', 'C'], $this->sexVals($sc['confirmedNonComplicated']));
+        $this->putRow($sheet, 301, ['Q', 'R'], $this->sexVals($sc['confirmedTreated']));
+        $this->putRow($sheet, 314, ['Q', 'R'], $this->sexVals($sc['referredToHospital']));
+        $this->putRow($sheet, 320, ['Q', 'R'], $this->sexVals($sc['mdaGiven']));
+
+        $sth = $inf['sth'];
+        $this->putRow($sheet, 331, ['B', 'C'], $this->sexVals($sth['screened']));
+        $this->putRow($sheet, 338, ['B', 'C'], $this->sexVals($sth['suspectedResident']));
+        $this->putRow($sheet, 339, ['B', 'C'], $this->sexVals($sth['suspectedNonResident']));
+        $this->putRow($sheet, 347, ['B', 'C'], $this->sexVals($sth['confirmedResident']));
+        $this->putRow($sheet, 348, ['B', 'C'], $this->sexVals($sth['confirmedNonResident']));
+        $this->putRow($sheet, 332, ['Q', 'R'], $this->sexVals($sth['treatedResident']));
+        $this->putRow($sheet, 333, ['Q', 'R'], $this->sexVals($sth['treatedNonResident']));
+
+        $lep = $inf['leprosy'];
+        $this->putRow($sheet, 360, ['B', 'C'], $this->sexVals($lep['registered']));
+        $this->putRow($sheet, 364, ['B', 'C'], $this->sexVals($lep['newlyDetected']));
+        $this->putRow($sheet, 368, ['B', 'C'], $this->sexVals($lep['confirmed']));
+        $this->putRow($sheet, 360, ['Q', 'R'], $this->sexVals($lep['completedMdt']));
+        $this->putRow($sheet, 364, ['Q', 'R'], $this->sexVals($lep['treated']));
+        $this->putRow($sheet, 368, ['Q', 'R'], $this->sexVals($lep['grade2Disability']));
+    }
+
+    /* ---- template-writing primitives --------------------------------------
+     * put() never overwrites a cell that already contains a formula, so the
+     * template's own subtotal/grand-total SUM() cells are always preserved
+     * and simply recalculate in Excel once the file is opened. */
+
+    private function put(Worksheet $sheet, string $coordinate, $value): void
+    {
+        $cell = $sheet->getCell($coordinate);
+        $existing = $cell->getValue();
+        if (is_string($existing) && str_starts_with($existing, '=')) {
+            return;
+        }
+        $cell->setValue($value ?? 0);
+    }
+
+    private function putRow(Worksheet $sheet, int $row, array $columns, array $values): void
+    {
+        foreach ($columns as $i => $col) {
+            $this->put($sheet, "{$col}{$row}", $values[$i] ?? 0);
+        }
+    }
+
+    private function ageVals(array $bracket): array
+    {
+        return [
+            $bracket['10-14'] ?? 0,
+            $bracket['15-19'] ?? 0,
+            $bracket['20-49'] ?? 0,
+            $bracket['total'] ?? 0,
+        ];
+    }
+
+    private function sexVals(array $bracket): array
+    {
+        return [
+            $bracket['male'] ?? 0,
+            $bracket['female'] ?? 0,
+            $bracket['total'] ?? 0,
+        ];
     }
 
     /* =====================================================================
      * Family Planning
      * ===================================================================*/
 
-    private function familyPlanning(): array
+    private function familyPlanning(?string $month, ?string $year): array
     {
         $records = DB::table('family_planning_records as fp')
             ->leftJoin('household_profiles as hp', 'hp.id', '=', 'fp.profileId')
@@ -51,7 +576,8 @@ class PublicNurseController extends Controller
                 'hp.memberFirstName',
                 'hp.memberMiddleName'
             )
-            ->get();
+            ->get()
+            ->filter(fn ($r) => $this->dateInPeriod($r->registrationDate, $month, $year));
 
         $followUpsByRecord = DB::table('family_planning_follow_ups')->get()->groupBy('recordId');
         $dropOutsByRecord = DB::table('family_planning_drop_outs')->get()->groupBy('recordId');
@@ -105,9 +631,10 @@ class PublicNurseController extends Controller
      * Maternal Care
      * ===================================================================*/
 
-    private function maternalCare(): array
+    private function maternalCare(?string $month, ?string $year): array
     {
-        $records = DB::table('maternal_care_records')->get();
+        $records = DB::table('maternal_care_records')->get()
+            ->filter(fn ($r) => $this->dateInPeriod($r->registrationDate, $month, $year));
         $ancByRecord = DB::table('prenatal_8anc_records')->get()->keyBy('maternalRecordId');
         $immuByRecord = DB::table('prenatal_immunization_records')->get()->keyBy('maternalRecordId');
         $suppByRecord = DB::table('prenatal_supplementation_records')->get()->keyBy('maternal_record_id');
@@ -195,16 +722,20 @@ class PublicNurseController extends Controller
      * Child Care (Immunization / Immunization School / Sick / Nutrition)
      * ===================================================================*/
 
-    private function childCare(): array
+    private function childCare(?string $month, ?string $year): array
     {
         return [
             'immunization' => DB::table('child_immunization_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->registrationDate, $month, $year))
                 ->map(fn ($r) => $this->mapChildImmunization($r))->values()->all(),
             'immunizationSchool' => DB::table('child_immunization_school_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->registrationDate, $month, $year))
                 ->map(fn ($r) => $this->mapChildImmunizationSchool($r))->values()->all(),
             'managementOfSick' => DB::table('child_sick_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->dateRegistration, $month, $year))
                 ->map(fn ($r) => $this->mapChildManagementSick($r))->values()->all(),
             'nutrition' => DB::table('child_nutrition_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->dateRegistration, $month, $year))
                 ->map(fn ($r) => $this->mapChildNutrition($r))->values()->all(),
         ];
     }
@@ -357,9 +888,11 @@ class PublicNurseController extends Controller
      * Oral Health Care
      * ===================================================================*/
 
-    private function oralHealth(): array
+    private function oralHealth(?string $month, ?string $year): array
     {
-        return DB::table('oral_health_care')->get()->map(function ($r) {
+        return DB::table('oral_health_care')->get()
+            ->filter(fn ($r) => $this->dateInPeriod($r->date_of_visit, $month, $year))
+            ->map(function ($r) {
             return [
                 'id' => (string) $r->id,
                 'dateOfVisit' => $r->date_of_visit ?? '',
@@ -399,16 +932,20 @@ class PublicNurseController extends Controller
      * Non-Communicable Disease (PhilPEN / Eye / Cervical Cancer / Mental Health)
      * ===================================================================*/
 
-    private function nonCommunicableDisease(): array
+    private function nonCommunicableDisease(?string $month, ?string $year): array
     {
         return [
             'philpenRiskAssessment' => DB::table('philpen_risk_assessments')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_assessment, $month, $year))
                 ->map(fn ($r) => $this->mapPhilpen($r))->values()->all(),
             'eyeScreening' => DB::table('eyes_screenings')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_screening, $month, $year))
                 ->map(fn ($r) => $this->mapEyeScreening($r))->values()->all(),
             'cervicalCancer' => DB::table('cervical_cancer_screenings')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_assessment, $month, $year))
                 ->map(fn ($r) => $this->mapCervicalCancer($r))->values()->all(),
             'mentalHealth' => DB::table('mental_health_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->dateOfAssessment, $month, $year))
                 ->map(fn ($r) => $this->mapMentalHealth($r))->values()->all(),
         ];
     }
@@ -532,9 +1069,11 @@ class PublicNurseController extends Controller
      * Geriatric Health
      * ===================================================================*/
 
-    private function geriatricHealth(): array
+    private function geriatricHealth(?string $month, ?string $year): array
     {
-        return DB::table('geriatric_screening_records')->get()->map(function ($r) {
+        return DB::table('geriatric_screening_records')->get()
+            ->filter(fn ($r) => $this->dateInPeriod($r->date_of_screening, $month, $year))
+            ->map(function ($r) {
             $domains = collect(explode(',', $r->results ?? ''))
                 ->map(fn ($d) => trim($d))
                 ->filter(fn ($d) => in_array($d, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'], true))
@@ -564,16 +1103,24 @@ class PublicNurseController extends Controller
      * Infectious Disease (Filariasis / Schistosomiasis / STH / Leprosy)
      * ===================================================================*/
 
-    private function infectiousDisease(): array
+    private function infectiousDisease(?string $month, ?string $year): array
     {
         return [
-            'filariasis' => DB::table('filariasis_registry_table')->get()->values()
+            'filariasis' => DB::table('filariasis_registry_table')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_of_registration, $month, $year))
+                ->values()
                 ->map(fn ($r, $i) => $this->mapFilariasis($r, $i + 1))->all(),
-            'schistosomiasis' => DB::table('schistosomiasis_registry')->get()->values()
+            'schistosomiasis' => DB::table('schistosomiasis_registry')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_of_registration, $month, $year))
+                ->values()
                 ->map(fn ($r, $i) => $this->mapSchistosomiasis($r, $i + 1))->all(),
-            'sth' => DB::table('sth_registry_records')->get()->values()
+            'sth' => DB::table('sth_registry_records')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_of_registration, $month, $year))
+                ->values()
                 ->map(fn ($r, $i) => $this->mapSth($r, $i + 1))->all(),
-            'leprosy' => DB::table('leprosy_registry')->get()->values()
+            'leprosy' => DB::table('leprosy_registry')->get()
+                ->filter(fn ($r) => $this->dateInPeriod($r->date_of_registration, $month, $year))
+                ->values()
                 ->map(fn ($r, $i) => $this->mapLeprosy($r, $i + 1))->all(),
         ];
     }
@@ -827,6 +1374,40 @@ class PublicNurseController extends Controller
     /* =====================================================================
      * Helpers
      * ===================================================================*/
+
+    /**
+     * Determine whether a free-text date column (these tables store dates
+     * as strings like "mm/dd/yy" rather than real DATE columns) falls
+     * within the requested month/year. Unparseable or empty values are
+     * treated as not matching so they don't silently leak into every
+     * filtered view.
+     */
+    private function dateInPeriod($value, ?string $month, ?string $year): bool
+    {
+        if (! $month && ! $year) {
+            return true;
+        }
+
+        if (empty($value)) {
+            return false;
+        }
+
+        try {
+            $date = Carbon::parse($value);
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        if ($month && $date->format('m') !== str_pad((string) $month, 2, '0', STR_PAD_LEFT)) {
+            return false;
+        }
+
+        if ($year && $date->format('Y') !== (string) $year) {
+            return false;
+        }
+
+        return true;
+    }
 
     /**
      * Safely stringify a raw DB value for a TargetClientListTable cell

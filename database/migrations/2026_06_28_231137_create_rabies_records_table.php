@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('rabies_records', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
             $table->string('name')->nullable();
             $table->integer('age')->nullable();
             $table->string('sex')->nullable();
@@ -81,6 +83,8 @@ return new class extends Migration
             $table->string('ats_dose')->nullable();
             $table->string('ats_date')->nullable();
             $table->text('impression')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

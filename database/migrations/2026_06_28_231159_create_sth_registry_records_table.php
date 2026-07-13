@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('sth_registry_records', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
             $table->string('date_of_registration')->nullable();
             $table->string('family_serial_number')->nullable();
             $table->string('name')->nullable();
@@ -37,6 +39,8 @@ return new class extends Migration
             $table->string('july_mda_modality')->nullable();
             
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

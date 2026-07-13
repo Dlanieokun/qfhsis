@@ -10,6 +10,8 @@ return new class extends Migration
     {
         Schema::create('child_sick_records', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
 
             // Section 1 — Basic Information
             $table->string('dateRegistration')->nullable();
@@ -42,6 +44,8 @@ return new class extends Migration
 
             // Section 4 — Remarks
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

@@ -11,15 +11,24 @@ use Inertia\Response;
 class PhoController extends Controller
 {
     /**
-     * PHO View showing the M1/Q1/M2/A1 report tabs.
+     * PHO View showing the M1/Q1/M2/A1 report tabs with location data.
      */
     public function pho(): Response
     {
-        return Inertia::render('fhsis/pho', [
-            'familyPlanning' => $this->getFamilyPlanningData(),
-            'maternalCare' => $this->getMaternalCareData(),
-            'childCare' => $this->getChildCareData(),
-        ]);
+        $regions = DB::table('regions')->select('regCode', 'regDesc')->get();
+        $provinces = DB::table('provinces')->select('provCode', 'provDesc', 'regCode')->get();
+        $municipalities = DB::table('municipalities')->select('citymunCode', 'citymunDesc', 'provCode')->get();
+        $barangays = DB::table('barangays')->select('brgyCode', 'brgyDesc', 'citymunCode')->get();
+
+        return Inertia::render('fhsis/pho', array_merge(
+            $this->getM1ReportData(),
+            [
+                'regions' => $regions,
+                'provinces' => $provinces,
+                'municipalities' => $municipalities,
+                'barangays' => $barangays,
+            ]
+        ));
     }
 
     public function nurse(): Response
@@ -28,21 +37,26 @@ class PhoController extends Controller
     }
 
     /**
+     * Assembles every M1 section (A–G) into a single array. Shared by the
+     * pho() Inertia view and by PublicNurseController::m1AllDownload(),
+     * which renders this same data as an .xlsx export.
+     */
+    public function getM1ReportData(): array
+    {
+        return [
+            'familyPlanning' => $this->getFamilyPlanningData(),
+            'maternalCare' => $this->getMaternalCareData(),
+            'childCare' => $this->getChildCareData(),
+            'oralHealth' => $this->getOralHealthData(),
+            'nonCommunicableDisease' => $this->getNonCommunicableDiseaseData(),
+            'environmentalHealth' => $this->getEnvironmentalHealthData(),
+            'infectiousDisease' => $this->getInfectiousDiseaseData(),
+        ];
+    }
+
+    /**
      * Builds the Section A (Family Planning) figures for the M1 form from
      * household_profiles.fpMethodUsed / dob.
-     *
-     * Covered:
-     *  - A1 "Demand Satisfied": WRA (10-49) currently using a modern method,
-     *    grouped by age bracket.
-     *  - A2 "Current Users (End of the Month)" column, grouped by method +
-     *    age bracket.
-     *
-     * NOT covered yet (left blank in the UI on purpose, needs month-scoped
-     * queries against family_planning_records / family_planning_drop_outs):
-     *  - Current Users (Beginning of the Month)
-     *  - Acceptors
-     *  - Drop-outs
-     *  - New Acceptors
      */
     private function getFamilyPlanningData(): array
     {
@@ -142,23 +156,6 @@ class PhoController extends Controller
 
     /**
      * Builds Section B (Maternal Care and Services) figures for the M1 form.
-     *
-     * Data sources:
-     *  - maternal_care_records            (age bracket, BMI status)
-     *  - prenatal_8anc_records            (8ANC completion, BP monitoring, danger signs)
-     *  - prenatal_immunization_records    (Td dosing)
-     *  - prenatal_supplementation_records (IFA / MMS / Calcium / deworming completion)
-     *  - prenatal_lab_screening_records   (CBC → anemia, GDM screening)
-     *  - intrapartum_records              (deliveries, attendant, facility, type, outcome, birth weight)
-     *  - postpartum_records               (4PNC completion, supplementation, BP monitoring)
-     *
-     * NOTE ON GAPS: the current schema doesn't distinguish Resident vs.
-     * TRANS-IN/TRANS-OUT clients, nor "first trimester" specifically for the
-     * BMI assessment, nor is there a dedicated field for "diagnosed with
-     * anemia" separate from the CBC free-text result. Those sub-indicators
-     * (a1/a2/b1/b2/b3 rows, resident splits, etc.) are left for manual entry
-     * in the UI since they can't be reliably derived yet. Everything else
-     * below is computed from real records.
      */
     private function getMaternalCareData(): array
     {
@@ -272,7 +269,7 @@ class PhoController extends Controller
                 }
             });
 
-        // Supplementation + deworming (note: FK column is snake_case here)
+        // Supplementation + deworming
         DB::table('prenatal_supplementation_records')
             ->select('maternal_record_id', 'completed_ifa', 'completed_mm', 'completed_cc', 'received_deworming')
             ->orderBy('id')
@@ -325,7 +322,7 @@ class PhoController extends Controller
                 }
             });
 
-        // ---- Intrapartum (newborn sex is the breakdown dimension here) ----
+        // ---- Intrapartum ----
         $intrapartum = [
             'totalDeliveries' => $emptySex,
             'attendantPhysician' => $emptySex,
@@ -404,7 +401,7 @@ class PhoController extends Controller
                 }
             });
 
-        // ---- Postpartum (age bracket comes from the parent maternal record) ----
+        // ---- Postpartum ----
         $postpartum = [
             'pnc4Completed' => $emptyBrackets,
             'ifaCompleted' => $emptyBrackets,
@@ -503,29 +500,13 @@ class PhoController extends Controller
 
     /**
      * Builds Section C (Child Care and Services) figures for the M1 form.
-     *
-     * Data sources:
-     *  - child_immunization_records         (0-11mo current/previous-year vaccination series)
-     *  - child_immunization_school_records  (school & community-based immunization)
-     *  - child_nutrition_records            (breastfeeding, Vit A, MNP/LNS-SQ, MAM/SAM)
-     *  - child_sick_records                  (management of sick children)
-     *
-     * NOTE ON GAPS:
-     *  - "Current year" vs. "previous year" cohorts (A.1 vs. A.2) are inferred
-     *    from the child's dateOfBirth calendar year vs. today's year, since
-     *    there's no explicit cohort flag in the schema.
-     *  - Grade 1 vs. Grade 7 (A.3) is inferred from the free-text `gradeLevel`
-     *    column via simple substring matching — tighten this if your app
-     *    stores grade level differently (e.g. "Grade 1" vs "1").
-     *  - Age-band rows (6-11mo / 12-59mo) parse the leading digits out of the
-     *    string `ageMonths` column.
      */
     private function getChildCareData(): array
     {
         $emptySex = ['male' => 0, 'female' => 0, 'total' => 0];
         $currentYear = now()->year;
 
-        // ---- A.1 / A.2: 0-11 months immunization (current vs. previous year) ----
+        // ---- A.1 / A.2: 0-11 months immunization ----
         $imm0_11Keys = [
             'cpab', 'bcg24h', 'bcgLate', 'hepB24h', 'hepBLate',
             'dpt1', 'dpt2', 'dpt3', 'opv1', 'opv2', 'opv3', 'ipv1', 'ipv2',
@@ -557,7 +538,7 @@ class PhoController extends Controller
                         try {
                             $birthYear = Carbon::parse($row->dateOfBirth)->year;
                         } catch (\Throwable $e) {
-                            // leave birthYear null, row skipped below
+                            // skip
                         }
                     }
 
@@ -769,9 +750,536 @@ class PhoController extends Controller
     }
 
     /**
-     * Extracts the leading integer from a loosely-formatted numeric string
-     * column (e.g. ageMonths stored as "8" or "8 months").
+     * Builds Section D (Oral Health Care Services) figures for the M1 form
      */
+    private function getOralHealthData(): array
+    {
+        $emptySex = ['male' => 0, 'female' => 0, 'total' => 0];
+
+        $brackets = ['children1_4', 'children5_9', 'adolescents10_19', 'adults20_59', 'seniors60plus', 'pregnant'];
+
+        $firstVisit = array_fill_keys($brackets, $emptySex);
+        $firstVisitFacility = array_fill_keys($brackets, $emptySex);
+        $firstVisitNonFacility = array_fill_keys($brackets, $emptySex);
+        $completed2Visits = array_fill_keys($brackets, $emptySex);
+        $completed2VisitsFacility = array_fill_keys($brackets, $emptySex);
+        $completed2VisitsNonFacility = array_fill_keys($brackets, $emptySex);
+        $infantFirstVisit = $emptySex;
+
+        DB::table('oral_health_care')
+            ->select('sex', 'age_months', 'age_group1st', 'age_group2nd',
+                'rpoc0_oral_screening', 'rpoc0_risk_assessment', 'rpoc0_oral_hygiene',
+                'rpoc0_counseling', 'rpoc0_fluoride_varnish',
+                'oral_screening1st', 'oral_screening2nd',
+                'complete_rpoc1st', 'complete_rpoc2nd',
+                'service_location1st', 'service_location2nd')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (
+                &$firstVisit, &$firstVisitFacility, &$firstVisitNonFacility,
+                &$completed2Visits, &$completed2VisitsFacility, &$completed2VisitsNonFacility,
+                &$infantFirstVisit
+            ) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    $ageMonths = $this->leadingInt($row->age_months);
+                    $anyInfantService = $row->rpoc0_oral_screening || $row->rpoc0_risk_assessment
+                        || $row->rpoc0_oral_hygiene || $row->rpoc0_counseling || $row->rpoc0_fluoride_varnish;
+                    if ($ageMonths !== null && $ageMonths >= 0 && $ageMonths <= 11 && $anyInfantService) {
+                        $this->tallySex($infantFirstVisit, $sexKey);
+                    }
+
+                    $bracket = $this->oralHealthBracket($row->age_group1st);
+                    if ($bracket && $row->oral_screening1st) {
+                        $this->tallySex($firstVisit[$bracket], $sexKey);
+                        if ($row->service_location1st === 'A') {
+                            $this->tallySex($firstVisitFacility[$bracket], $sexKey);
+                        } elseif ($row->service_location1st === 'B') {
+                            $this->tallySex($firstVisitNonFacility[$bracket], $sexKey);
+                        }
+                    }
+
+                    $bracket2 = $this->oralHealthBracket($row->age_group2nd ?: $row->age_group1st);
+                    if ($bracket2 && (int) $row->complete_rpoc2nd === 1) {
+                        $this->tallySex($completed2Visits[$bracket2], $sexKey);
+                        if ($row->service_location2nd === 'A') {
+                            $this->tallySex($completed2VisitsFacility[$bracket2], $sexKey);
+                        } elseif ($row->service_location2nd === 'B') {
+                            $this->tallySex($completed2VisitsNonFacility[$bracket2], $sexKey);
+                        }
+                    }
+                }
+            });
+
+        return [
+            'infantFirstVisit' => $infantFirstVisit,
+            'firstVisit' => $firstVisit,
+            'firstVisitFacility' => $firstVisitFacility,
+            'firstVisitNonFacility' => $firstVisitNonFacility,
+            'completed2Visits' => $completed2Visits,
+            'completed2VisitsFacility' => $completed2VisitsFacility,
+            'completed2VisitsNonFacility' => $completed2VisitsNonFacility,
+        ];
+    }
+
+    private function oralHealthBracket(?string $ageGroupCode): ?string
+    {
+        return match ($ageGroupCode) {
+            'A' => 'children1_4',
+            'B' => 'children5_9',
+            'C' => 'adolescents10_19',
+            'D' => 'adults20_59',
+            'E' => 'seniors60plus',
+            'F', 'G', 'H' => 'pregnant',
+            default => null,
+        };
+    }
+
+    /**
+     * Builds Section E (Non-Communicable Diseases) figures for the M1 form.
+     */
+    private function getNonCommunicableDiseaseData(): array
+    {
+        $emptySex = ['male' => 0, 'female' => 0, 'total' => 0];
+
+        $lifestyleKeys = [
+            'currentSmoker', 'smokerTobacco', 'smokerVaporized', 'smokerBoth',
+            'providedBti', 'bingeAlcohol', 'insufficientPa', 'unhealthyDiet',
+            'overweight', 'obese',
+        ];
+        $lifestyle2059 = array_fill_keys($lifestyleKeys, $emptySex);
+        $lifestyle60plus = array_fill_keys($lifestyleKeys, $emptySex);
+
+        $cvd2059 = $emptySex;
+        $cvd60plus = $emptySex;
+        $dm2059 = $emptySex;
+        $dm60plus = $emptySex;
+
+        DB::table('philpen_risk_assessments')
+            ->select('sex', 'age_group', 'current_smoker', 'provided_bti', 'binge_alcohol',
+                'insufficient_pa', 'unhealthy_diet', 'bmi_category', 'hypertension_result', 'diabetes_result')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$lifestyle2059, &$lifestyle60plus, &$cvd2059, &$cvd60plus, &$dm2059, &$dm60plus) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    $isSenior = $row->age_group === 'B';
+                    $lifestyle = $isSenior ? $lifestyle60plus : $lifestyle2059;
+
+                    $smoker = (int) $row->current_smoker;
+                    if ($smoker > 0) {
+                        $this->tallySex($lifestyle['currentSmoker'], $sexKey);
+                        if ($smoker === 1) $this->tallySex($lifestyle['smokerTobacco'], $sexKey);
+                        if ($smoker === 2) $this->tallySex($lifestyle['smokerVaporized'], $sexKey);
+                        if ($smoker === 3) $this->tallySex($lifestyle['smokerBoth'], $sexKey);
+                    }
+                    if ((int) $row->provided_bti === 1) $this->tallySex($lifestyle['providedBti'], $sexKey);
+                    if ((int) $row->binge_alcohol === 1) $this->tallySex($lifestyle['bingeAlcohol'], $sexKey);
+                    if ((int) $row->insufficient_pa === 1) $this->tallySex($lifestyle['insufficientPa'], $sexKey);
+                    if ((int) $row->unhealthy_diet === 1) $this->tallySex($lifestyle['unhealthyDiet'], $sexKey);
+                    if ((int) $row->bmi_category === 1) $this->tallySex($lifestyle['overweight'], $sexKey);
+                    if ((int) $row->bmi_category === 2) $this->tallySex($lifestyle['obese'], $sexKey);
+
+                    if ((int) $row->hypertension_result === 1) {
+                        // $this->tallySex($isSenior ? $cvd60plus : $cvd2059, $sexKey);
+                    }
+                    if ((int) $row->diabetes_result === 1) {
+                        // $this->tallySex($isSenior ? $dm60plus : $dm2059, $sexKey);
+                    }
+                }
+            });
+
+        // ---- Blindness Prevention (eyes_screenings) ----
+        $eyeKeys = ['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus', 'identified', 'referred'];
+        $blindness = array_fill_keys($eyeKeys, $emptySex);
+
+        DB::table('eyes_screenings')
+            ->select('sex', 'age_group', 'screened', 'eye_disease_code', 'date_referred')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$blindness) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey || (int) $row->screened !== 1) {
+                        continue;
+                    }
+
+                    $bucket = match ($row->age_group) {
+                        'A' => 'screened0_9',
+                        'B' => 'screened10_19',
+                        'C' => 'screened20_59',
+                        'D' => 'screened60plus',
+                        default => null,
+                    };
+                    if ($bucket) {
+                        $this->tallySex($blindness[$bucket], $sexKey);
+                    }
+
+                    if ($row->eye_disease_code && $row->eye_disease_code !== '0') {
+                        $this->tallySex($blindness['identified'], $sexKey);
+                    }
+                    if ($row->date_referred) {
+                        $this->tallySex($blindness['referred'], $sexKey);
+                    }
+                }
+            });
+
+        // ---- Mental Health (mhGAP screening) ----
+        $mentalHealthKeys = ['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus'];
+        $mentalHealth = array_fill_keys($mentalHealthKeys, $emptySex);
+
+        DB::table('mental_health_records')
+            ->select('sex', 'ageGroup', 'screenedMhgap')
+            ->orderBy('recordNo')
+            ->chunk(300, function ($rows) use (&$mentalHealth) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey || ! $row->screenedMhgap) {
+                        continue;
+                    }
+
+                    $bucket = match ($row->ageGroup) {
+                        'A' => 'screened0_9',
+                        'B' => 'screened10_19',
+                        'C' => 'screened20_59',
+                        'D' => 'screened60plus',
+                        default => null,
+                    };
+                    if ($bucket) {
+                        $this->tallySex($mentalHealth[$bucket], $sexKey);
+                    }
+                }
+            });
+
+        // ---- Cervical & Breast Cancer (cervical_cancer_screenings) ----
+        $cervical = [
+            'screened' => 0, 'via' => 0, 'papSmear' => 0, 'hpvDna' => 0, 'assessedOnly' => 0,
+            'suspicious' => 0, 'linkedToCare' => 0, 'linkedTreated' => 0, 'linkedReferred' => 0,
+        ];
+        $breast = [
+            'seen' => 0, 'highRiskOrSymptomatic' => 0, 'providedCbe' => 0, 'providedMammogram' => 0,
+            'remarkableCbe' => 0, 'remarkableMammogram' => 0, 'linkedToCare' => 0,
+            'asymptomaticScreened' => 0,
+        ];
+
+        DB::table('cervical_cancer_screenings')
+            ->select('cervical_screening_done', 'cervical_result', 'cervical_linked_to_care',
+                'breast_risk_assessment', 'breast_exam_type', 'breast_result', 'breast_linked_to_care')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$cervical, &$breast) {
+                foreach ($rows as $row) {
+                    $doneCode = (int) $row->cervical_screening_done;
+                    if ($doneCode > 0) {
+                        $cervical['screened']++;
+                        if ($doneCode === 3) $cervical['hpvDna']++;
+                        if ($doneCode === 2) $cervical['papSmear']++;
+                        if ($doneCode === 1) $cervical['via']++;
+                        if ($doneCode === 0) $cervical['assessedOnly']++;
+                    }
+                    if ((int) $row->cervical_result === 1) {
+                        $cervical['suspicious']++;
+                    }
+                    $linkCode = (int) $row->cervical_linked_to_care;
+                    if ($linkCode > 0) {
+                        $cervical['linkedToCare']++;
+                        if ($linkCode === 1) $cervical['linkedTreated']++;
+                        if ($linkCode === 2) $cervical['linkedReferred']++;
+                    }
+
+                    $riskCode = (int) $row->breast_risk_assessment;
+                    if ($riskCode > 0) {
+                        $breast['seen']++;
+                        $breast['highRiskOrSymptomatic']++;
+                    } elseif ($riskCode === 0) {
+                        $breast['seen']++;
+                        $breast['asymptomaticScreened']++;
+                    }
+
+                    $examType = strtolower((string) $row->breast_exam_type);
+                    if (str_contains($examType, 'cbe')) $breast['providedCbe']++;
+                    if (str_contains($examType, 'mammo')) $breast['providedMammogram']++;
+
+                    $breastResult = (int) $row->breast_result;
+                    if ($breastResult >= 2) {
+                        if (str_contains($examType, 'cbe')) $breast['remarkableCbe']++;
+                        if (str_contains($examType, 'mammo')) $breast['remarkableMammogram']++;
+                    }
+                    if ((int) $row->breast_linked_to_care === 1) {
+                        $breast['linkedToCare']++;
+                    }
+                }
+            });
+
+        return [
+            'lifestyle2059' => $lifestyle2059,
+            'lifestyle60plus' => $lifestyle60plus,
+            'cvd2059' => $cvd2059,
+            'cvd60plus' => $cvd60plus,
+            'dm2059' => $dm2059,
+            'dm60plus' => $dm60plus,
+            'blindness' => $blindness,
+            'mentalHealth' => $mentalHealth,
+            'cervical' => $cervical,
+            'breast' => $breast,
+        ];
+    }
+
+    /**
+     * Builds Section F (Environmental Health and Sanitation) figures for the M1 form
+     */
+    private function getEnvironmentalHealthData(): array
+    {
+        $water = [
+            'levelI' => 0, 'levelII' => 0, 'levelIII' => 0, 'safelyManaged' => 0, 'total' => 0,
+        ];
+        $sanitation = [
+            'pourFlushSeptic' => 0, 'pourFlushSewer' => 0, 'vip' => 0,
+            'basicSanitationFacility' => 0, 'safelyManagedSanitation' => 0, 'total' => 0,
+        ];
+
+        DB::table('environmental_health_records')
+            ->select('waterLevelI', 'waterLevelII', 'waterLevelIII', 'safelyManagedDrinkingWater',
+                'sanitationStatus', 'unsanitaryToiletType', 'basicSanitationFacility', 'safelyManagedSanitationService')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$water, &$sanitation) {
+                foreach ($rows as $row) {
+                    $water['total']++;
+                    $sanitation['total']++;
+
+                    if ($row->waterLevelI) $water['levelI']++;
+                    if ($row->waterLevelII) $water['levelII']++;
+                    if ($row->waterLevelIII) $water['levelIII']++;
+                    if ((int) $row->safelyManagedDrinkingWater === 1) $water['safelyManaged']++;
+
+                    $status = strtolower((string) $row->sanitationStatus);
+                    if (str_contains($status, 'sewer')) {
+                        $sanitation['pourFlushSewer']++;
+                    } elseif (str_contains($status, 'septic') || str_contains($status, 'functional')) {
+                        $sanitation['pourFlushSeptic']++;
+                    }
+                    if ((int) $row->unsanitaryToiletType === 0 && ! str_contains($status, 'sewer') && ! str_contains($status, 'septic')) {
+                        if (str_contains($status, 'sanitary')) {
+                            $sanitation['vip']++;
+                        }
+                    }
+                    if ((int) $row->basicSanitationFacility === 1) $sanitation['basicSanitationFacility']++;
+                    if ((int) $row->safelyManagedSanitationService === 1) $sanitation['safelyManagedSanitation']++;
+                }
+            });
+
+        return [
+            'water' => $water,
+            'sanitation' => $sanitation,
+        ];
+    }
+
+    /**
+     * Builds Section G (Infectious Disease Prevention and Control Services) figures for the M1 form.
+     */
+    private function getInfectiousDiseaseData(): array
+    {
+        $emptySex = ['male' => 0, 'female' => 0, 'total' => 0];
+
+        // ---- Filariasis ----
+        $filariasis = [
+            'examinedNbe' => $emptySex, 'examinedRdt' => $emptySex,
+            'positiveNbe' => $emptySex, 'positiveRdt' => $emptySex,
+            'lymphedema' => $emptySex, 'elephantiasis' => $emptySex, 'hydrocele' => $emptySex,
+            'receivedMda' => $emptySex,
+        ];
+
+        DB::table('filariasis_registry_table')
+            ->select('sex', 'nbe_performed', 'rdt_performed', 'blood_test_result',
+                'has_lymphedema', 'has_elephantiasis', 'has_hydrocele',
+                'albendazole_date_given', 'dec_date_given', 'ivermectin_date_given')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$filariasis) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    $positive = $row->blood_test_result && str_contains(strtolower($row->blood_test_result), 'positive');
+                    if ($row->nbe_performed) {
+                        $this->tallySex($filariasis['examinedNbe'], $sexKey);
+                        if ($positive) $this->tallySex($filariasis['positiveNbe'], $sexKey);
+                    }
+                    if ($row->rdt_performed) {
+                        $this->tallySex($filariasis['examinedRdt'], $sexKey);
+                        if ($positive) $this->tallySex($filariasis['positiveRdt'], $sexKey);
+                    }
+                    if ($row->has_lymphedema) $this->tallySex($filariasis['lymphedema'], $sexKey);
+                    if ($row->has_elephantiasis) $this->tallySex($filariasis['elephantiasis'], $sexKey);
+                    if ($row->has_hydrocele) $this->tallySex($filariasis['hydrocele'], $sexKey);
+                    if ($row->albendazole_date_given || $row->dec_date_given || $row->ivermectin_date_given) {
+                        $this->tallySex($filariasis['receivedMda'], $sexKey);
+                    }
+                }
+            });
+
+        // ---- Rabies ----
+        $rabies = ['animalBites' => $emptySex, 'rabiesDeaths' => $emptySex];
+
+        DB::table('rabies_records')
+            ->select('sex', 'pvrv_outcome', 'pcev_outcome')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$rabies) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    $this->tallySex($rabies['animalBites'], $sexKey);
+
+                    $outcome = strtolower((string) ($row->pvrv_outcome ?: $row->pcev_outcome));
+                    if (str_contains($outcome, 'died') || str_contains($outcome, 'death')) {
+                        $this->tallySex($rabies['rabiesDeaths'], $sexKey);
+                    }
+                }
+            });
+
+        // ---- Schistosomiasis ----
+        $schisto = [
+            'patientsSeen' => $emptySex, 'suspectedCases' => $emptySex, 'suspectedTreated' => $emptySex,
+            'confirmedComplicated' => $emptySex, 'confirmedNonComplicated' => $emptySex,
+            'confirmedTreated' => $emptySex, 'confirmedCured' => $emptySex, 'referredToHospital' => $emptySex,
+            'mdaGiven' => $emptySex,
+        ];
+
+        DB::table('schistosomiasis_registry')
+            ->select('sex', 'screened', 'with_signs_symptoms', 'clinical_first_treatment_given',
+                'clinical_retreatment', 'clinical_cured', 'complicated',
+                'confirmed_first_treatment_given', 'confirmed_retreatment', 'confirmed_cured',
+                'date_referred_to_hospital', 'mda_given')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$schisto) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    if ($row->screened) $this->tallySex($schisto['patientsSeen'], $sexKey);
+                    if ($row->with_signs_symptoms) {
+                        $this->tallySex($schisto['suspectedCases'], $sexKey);
+                        if ($row->clinical_first_treatment_given || $row->clinical_retreatment) {
+                            $this->tallySex($schisto['suspectedTreated'], $sexKey);
+                        }
+                    }
+
+                    $complicated = $row->complicated && strtolower($row->complicated) !== 'no';
+                    if ($complicated) {
+                        $this->tallySex($schisto['confirmedComplicated'], $sexKey);
+                    } elseif ($row->confirmed_first_treatment_given || $row->confirmed_retreatment) {
+                        $this->tallySex($schisto['confirmedNonComplicated'], $sexKey);
+                    }
+                    if ($row->confirmed_first_treatment_given || $row->confirmed_retreatment) {
+                        $this->tallySex($schisto['confirmedTreated'], $sexKey);
+                    }
+                    if ($row->confirmed_cured) $this->tallySex($schisto['confirmedCured'], $sexKey);
+                    if ($row->date_referred_to_hospital) $this->tallySex($schisto['referredToHospital'], $sexKey);
+                    if ($row->mda_given) $this->tallySex($schisto['mdaGiven'], $sexKey);
+                }
+            });
+
+        // ---- Soil-Transmitted Helminthiasis (STH) ----
+        $sth = [
+            'screened' => $emptySex, 'suspectedResident' => $emptySex, 'suspectedNonResident' => $emptySex,
+            'confirmedResident' => $emptySex, 'confirmedNonResident' => $emptySex,
+            'treatedResident' => $emptySex, 'treatedNonResident' => $emptySex,
+            'januaryMda' => $emptySex, 'julyMda' => $emptySex,
+        ];
+
+        DB::table('sth_registry_records')
+            ->select('sex', 'residency', 'screened', 'screening_result', 'treatment_given',
+                'january_mda_date', 'july_mda_date')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$sth) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    if ($row->screened) $this->tallySex($sth['screened'], $sexKey);
+
+                    $isResident = $row->residency && strtolower($row->residency) !== 'non-resident' && (int) $row->residency !== 0;
+                    $isSuspectedOrConfirmed = $row->screening_result && strtolower($row->screening_result) !== 'negative';
+                    if ($isSuspectedOrConfirmed) {
+                        if ($isResident) {
+                            $this->tallySex($sth['suspectedResident'], $sexKey);
+                            $this->tallySex($sth['confirmedResident'], $sexKey);
+                        } else {
+                            $this->tallySex($sth['suspectedNonResident'], $sexKey);
+                            $this->tallySex($sth['confirmedNonResident'], $sexKey);
+                        }
+                    }
+                    if ($row->treatment_given && strtolower($row->treatment_given) !== 'none') {
+                        if ($isResident) {
+                            $this->tallySex($sth['treatedResident'], $sexKey);
+                        } else {
+                            $this->tallySex($sth['treatedNonResident'], $sexKey);
+                        }
+                    }
+                    if ($row->january_mda_date) $this->tallySex($sth['januaryMda'], $sexKey);
+                    if ($row->july_mda_date) $this->tallySex($sth['julyMda'], $sexKey);
+                }
+            });
+
+        // ---- Leprosy ----
+        $leprosy = [
+            'registered' => $emptySex, 'newlyDetected' => $emptySex, 'confirmed' => $emptySex,
+            'completedMdt' => $emptySex, 'treated' => $emptySex, 'grade2Disability' => $emptySex,
+        ];
+
+        DB::table('leprosy_registry')
+            ->select('sex', 'confirmed_case', 'case_history', 'completed_fixed_mdt',
+                'fixed_mdt_completed_date', 'treatment_start_date', 'grade2_disability')
+            ->orderBy('id')
+            ->chunk(300, function ($rows) use (&$leprosy) {
+                foreach ($rows as $row) {
+                    $sexKey = $this->sexKey($row->sex);
+                    if (! $sexKey) {
+                        continue;
+                    }
+
+                    $this->tallySex($leprosy['registered'], $sexKey);
+
+                    $history = strtolower((string) $row->case_history);
+                    if ($history === 'new' || $history === '0') {
+                        $this->tallySex($leprosy['newlyDetected'], $sexKey);
+                    }
+                    if ($row->confirmed_case && strtolower($row->confirmed_case) !== 'no') {
+                        $this->tallySex($leprosy['confirmed'], $sexKey);
+                    }
+                    if ($row->completed_fixed_mdt && strtolower($row->completed_fixed_mdt) !== 'no') {
+                        $this->tallySex($leprosy['completedMdt'], $sexKey);
+                    }
+                    if ($row->treatment_start_date) {
+                        $this->tallySex($leprosy['treated'], $sexKey);
+                    }
+                    if ($row->grade2_disability && strtolower($row->grade2_disability) !== 'no') {
+                        $this->tallySex($leprosy['grade2Disability'], $sexKey);
+                    }
+                }
+            });
+
+        return [
+            'filariasis' => $filariasis,
+            'rabies' => $rabies,
+            'schistosomiasis' => $schisto,
+            'sth' => $sth,
+            'leprosy' => $leprosy,
+        ];
+    }
+
     private function leadingInt(?string $value): ?int
     {
         if ($value === null || $value === '') {

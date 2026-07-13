@@ -4,9 +4,15 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\HouseholdProfile;
+use App\Models\FamilyPlanningRecord;
+use App\Models\FamilyPlanningDropOut;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class UsersController extends Controller
 {
@@ -64,10 +70,16 @@ class UsersController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
+                'status' => $user->status,
                 'assigned_facility' => $user->assigned_facility,
                 'barangay' => $user->barangay,
                 'municipality' => $user->municipality,
-                'province' => $user->province
+                'province' => $user->province,
+                'region' => $user->region,
+                'barangay_codes' => $user->barangay_codes,
+                'municipality_code' => $user->municipality_code,
+                'province_code' => $user->province_code,
+                'region_code' => $user->region_code,
             ]
         ], 200);
     }
@@ -83,5 +95,45 @@ class UsersController extends Controller
             'status' => 'success',
             'message' => 'Successfully logged out.'
         ], 200);
+    }
+
+    public function insertloop(int $loop)
+    {
+        try {
+            $data = [];
+            $now = now();
+
+            // 1. Build the array in memory instead of querying the DB every loop
+            for ($i = 0; $i < $loop; $i++) {
+                $data[] = [
+                    'sitio' => 'Sitio ' . ($i + 1),
+                    'barangay' => 'Example Barangay',
+                    'municipality' => 'Example Municipality',
+                    'province' => 'Example Province',
+                    'region' => 'Example Region',
+                    'hhNumber' => 'HH-' . rand(1000, 9999),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            // 2. Insert everything in chunks to prevent query size limit errors if $loop is massive
+            $chunks = array_chunk($data, 500); 
+            foreach ($chunks as $chunk) {
+                DB::table('household_profiles')->insert($chunk);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Successfully inserted {$loop} records."
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to insert records.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

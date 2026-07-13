@@ -1,4 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+
+// ─── Location Data Shapes ────────────────────────────────────────────────────
+interface Region { regCode: string; regDesc: string; }
+interface Province { provCode: string; provDesc: string; regCode: string; }
+interface Municipality { citymunCode: string; citymunDesc: string; provCode: string; }
+interface Barangay { brgyCode: string; brgyDesc: string; citymunCode: string; }
 
 // ─── Data shape coming from PhoController@pho via Inertia props ─────────────
 interface FamilyPlanningBrackets {
@@ -11,6 +17,11 @@ interface FamilyPlanningBrackets {
 interface FamilyPlanningData {
   demandSatisfied: FamilyPlanningBrackets;
   currentUsersByMethod: Record<string, FamilyPlanningBrackets>;
+  currentUsersBeginningOfMonth: Record<string, FamilyPlanningBrackets>;
+  newAcceptorsPreviousMonth: Record<string, FamilyPlanningBrackets>;
+  otherAcceptorsPresentMonth: Record<string, FamilyPlanningBrackets>;
+  dropOutsPresentMonth: Record<string, FamilyPlanningBrackets>;
+  newAcceptorsPresentMonth: Record<string, FamilyPlanningBrackets>;
 }
 
 // Section B (Maternal Care) data shape from PhoController@getMaternalCareData
@@ -43,18 +54,70 @@ interface ChildCareData {
   mgmtSick: Record<string, SexBrackets>;
 }
 
+// Section D (Oral Health) data shape from PhoController@getOralHealthData
+interface OralHealthData {
+  infantFirstVisit: SexBrackets;
+  firstVisit: Record<string, SexBrackets>;
+  firstVisitFacility: Record<string, SexBrackets>;
+  firstVisitNonFacility: Record<string, SexBrackets>;
+  completed2Visits: Record<string, SexBrackets>;
+  completed2VisitsFacility: Record<string, SexBrackets>;
+  completed2VisitsNonFacility: Record<string, SexBrackets>;
+}
+
+// Section E (Non-Communicable Diseases) data shape from PhoController@getNonCommunicableDiseaseData
+interface CervicalCancerTotals {
+  screened: number; via: number; papSmear: number; hpvDna: number; assessedOnly: number;
+  suspicious: number; linkedToCare: number; linkedTreated: number; linkedReferred: number;
+}
+interface BreastCancerTotals {
+  seen: number; highRiskOrSymptomatic: number; providedCbe: number; providedMammogram: number;
+  remarkableCbe: number; remarkableMammogram: number; linkedToCare: number; asymptomaticScreened: number;
+}
+interface NonCommunicableDiseaseData {
+  lifestyle2059: Record<string, SexBrackets>;
+  lifestyle60plus: Record<string, SexBrackets>;
+  cvd2059: SexBrackets;
+  cvd60plus: SexBrackets;
+  dm2059: SexBrackets;
+  dm60plus: SexBrackets;
+  blindness: Record<string, SexBrackets>;
+  mentalHealth: Record<string, SexBrackets>;
+  cervical: CervicalCancerTotals;
+  breast: BreastCancerTotals;
+}
+
+// Section F (Environmental Health) data shape from PhoController@getEnvironmentalHealthData
+interface EnvironmentalHealthData {
+  water: { levelI: number; levelII: number; levelIII: number; safelyManaged: number; total: number };
+  sanitation: {
+    pourFlushSeptic: number; pourFlushSewer: number; vip: number;
+    basicSanitationFacility: number; safelyManagedSanitation: number; total: number;
+  };
+}
+
+// Section G (Infectious Disease) data shape from PhoController@getInfectiousDiseaseData
+interface InfectiousDiseaseData {
+  filariasis: Record<string, SexBrackets>;
+  rabies: Record<string, SexBrackets>;
+  schistosomiasis: Record<string, SexBrackets>;
+  sth: Record<string, SexBrackets>;
+  leprosy: Record<string, SexBrackets>;
+}
+
 interface M1AllProgramsProps {
   familyPlanning?: FamilyPlanningData;
   maternalCare?: MaternalCareData;
   childCare?: ChildCareData;
-}
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-interface RowDef {
-  label: string;
-  indent?: number;    
-  type?: 'section' | 'subSection' | 'header' | 'row';
-  colSpan?: { ageGroup?: boolean; sex?: boolean; wra?: boolean; custom?: string[] };
+  oralHealth?: OralHealthData;
+  nonCommunicableDisease?: NonCommunicableDiseaseData;
+  environmentalHealth?: EnvironmentalHealthData;
+  infectiousDisease?: InfectiousDiseaseData;
+  // Cascading Location Dropdown Requirements
+  regions?: Region[];
+  provinces?: Province[];
+  municipalities?: Municipality[];
+  barangays?: Barangay[];
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -70,15 +133,9 @@ const Td = ({ children, className = '', colSpan, rowSpan }: { children?: React.R
   </td>
 );
 
-// InputCell is now pre-filled from `value` (real DB-backed data) when provided,
-// while remaining a normal editable input (defaultValue = uncontrolled).
 const InputCell = ({ className = '', value }: { className?: string; value?: number | string }) => (
-  <td className={`border border-gray-400 px-1 py-0.5 ${className}`}>
-    <input
-      type="number"
-      className="w-full text-center text-xs border-0 outline-none bg-transparent"
-      defaultValue={value ?? ''}
-    />
+  <td className={`border border-gray-400 px-1 py-0.5 text-center text-xs ${className}`}>
+    {value ?? ''}
   </td>
 );
 
@@ -98,18 +155,7 @@ const SubSectionHeader = ({ children, colSpan }: { children: React.ReactNode; co
   </tr>
 );
 
-// ─── Shared age-group columns: 10-14 | 15-19 | 20-49 | TOTAL ────────────────
-const AgeGroupHeaders = () => (
-  <>
-    <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th>
-  </>
-);
-// Sex columns: Male | Female | Total
-const SexHeaders = () => (
-  <>
-    <Th>Male</Th><Th>Female</Th><Th>Total</Th>
-  </>
-);
+// ─── Shared Helper Inputs ───────────────────────────────────────────────────
 const AgeInputs = () => (
   <>
     <InputCell /><InputCell /><InputCell /><InputCell />
@@ -121,25 +167,7 @@ const SexInputs = () => (
   </>
 );
 
-// ─── HEADER INFO ─────────────────────────────────────────────────────────────
-const FormHeader = () => (
-  <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
-    <div className="space-y-1">
-      <div>FHSIS REPORT for the Month: <span className="border-b border-gray-500 inline-block w-32">&nbsp;</span> Year: <span className="border-b border-gray-500 inline-block w-20">&nbsp;</span></div>
-      <div>Name of Barangay: <span className="border-b border-gray-500 inline-block w-64">&nbsp;</span></div>
-      <div>Name of BHS: <span className="border-b border-gray-500 inline-block w-64">&nbsp;</span></div>
-    </div>
-    <div className="space-y-1">
-      <div>Name of Municipality/City: <span className="border-b border-gray-500 inline-block w-48">&nbsp;</span></div>
-      <div>Name of Province: <span className="border-b border-gray-500 inline-block w-52">&nbsp;</span></div>
-      <div>Projected Population of the Year: <span className="border-b border-gray-500 inline-block w-32">&nbsp;</span></div>
-    </div>
-  </div>
-);
-
 // ─── SECTION A: Family Planning ───────────────────────────────────────────────
-// Maps the display label used in the fpMethods list to the backend key
-// returned in familyPlanning.currentUsersByMethod (see PhoController@getFamilyPlanningData).
 const methodKeyMap: Record<string, string> = {
   '1. BTL': 'btl',
   '2. NSV': 'nsv',
@@ -158,6 +186,21 @@ const methodKeyMap: Record<string, string> = {
   '12. NFP-SDM': 'sdm',
 };
 
+const sumFamilyPlanningBrackets = (
+  data?: Record<string, FamilyPlanningBrackets>,
+): FamilyPlanningBrackets => {
+  const totals: FamilyPlanningBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
+  if (data) {
+    Object.values(data).forEach((counts) => {
+      totals['10-14'] += counts['10-14'] ?? 0;
+      totals['15-19'] += counts['15-19'] ?? 0;
+      totals['20-49'] += counts['20-49'] ?? 0;
+      totals.total += counts.total ?? 0;
+    });
+  }
+  return totals;
+};
+
 const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) => {
   const fpMethods = [
     '1. BTL', '2. NSV', '3. Condom', '4. Pills', 'a. Pills-POP', 'b. Pills-COC',
@@ -167,25 +210,34 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
     'Total Current Users',
   ];
 
-  // "Total Current Users" row = sum of every method's counts, per bracket.
-  const totalsByBracket: FamilyPlanningBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
-  if (familyPlanning) {
-    Object.values(familyPlanning.currentUsersByMethod).forEach((counts) => {
-      totalsByBracket['10-14'] += counts['10-14'] ?? 0;
-      totalsByBracket['15-19'] += counts['15-19'] ?? 0;
-      totalsByBracket['20-49'] += counts['20-49'] ?? 0;
-      totalsByBracket.total += counts.total ?? 0;
-    });
-  }
+  // Column groups in on-screen order (A2 table): Current Users (Beginning of the
+  // Month), New Acceptors (Previous Month), Other Acceptors (Present Month),
+  // Drop-outs (Present Month), Current Users (End of the Month). "New Acceptors
+  // (Present Month)" has no backing data yet, so it's left undefined/blank.
+  const columnGroups: (Record<string, FamilyPlanningBrackets> | undefined)[] = [
+    familyPlanning?.currentUsersBeginningOfMonth,
+    familyPlanning?.newAcceptorsPreviousMonth,
+    familyPlanning?.otherAcceptorsPresentMonth,
+    familyPlanning?.dropOutsPresentMonth,
+    familyPlanning?.currentUsersByMethod,
+    familyPlanning?.newAcceptorsPresentMonth,
+  ];
+
+  const columnGroupTotals: (FamilyPlanningBrackets | undefined)[] = [
+    sumFamilyPlanningBrackets(familyPlanning?.currentUsersBeginningOfMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.newAcceptorsPreviousMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.otherAcceptorsPresentMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.dropOutsPresentMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.currentUsersByMethod),
+    sumFamilyPlanningBrackets(familyPlanning?.newAcceptorsPresentMonth),
+  ];
 
   return (
     <div className="mb-6 space-y-4">
-      {/* Table A1: 6 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={6}>SECTION A. FAMILY PLANNING SERVICES FOR WOMEN OF REPRODUCTIVE AGE</SectionHeader>
 
-          {/* A1 */}
           <tr className="bg-gray-100">
             <td colSpan={6} className="border border-gray-400 px-2 py-1 font-semibold text-xs">
               A1. Demand Satisfied
@@ -217,26 +269,26 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
         </tbody>
       </table>
 
-      {/* Table A2: 21 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <tr className="bg-gray-100">
             <Th className="text-left" rowSpan={3}>A2. Modern FP Methods</Th>
             <Th colSpan={4}>Current Users (Beginning of the Month)</Th>
-            <Th colSpan={4}>Acceptors</Th>
+            <Th colSpan={8}>Acceptors</Th>
             <Th colSpan={4}>Drop-outs (Present Month)</Th>
             <Th colSpan={4}>Current User (End of the Month)</Th>
             <Th colSpan={4}>New Acceptors (Present Month)</Th>
           </tr>
           <tr className="bg-gray-50">
             <Th colSpan={4}>Age Group / TOTAL</Th>
-            <Th colSpan={4}>New Acceptors (Previous Month) / Other Acceptors (Present Month) / TOTAL</Th>
+            <Th colSpan={4}>New Acceptors (Previous Month)</Th>
+            <Th colSpan={4}>Other Acceptors (Present Month)</Th>
             <Th colSpan={4}>Age Group / TOTAL</Th>
             <Th colSpan={4}>Age Group / TOTAL</Th>
             <Th colSpan={4}>Age Group / TOTAL</Th>
           </tr>
           <tr className="bg-gray-50">
-            {[0, 1, 2, 3, 4].map(i => (
+            {[0, 1, 2, 3, 4, 5].map(i => (
               <React.Fragment key={i}>
                 <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th>
               </React.Fragment>
@@ -245,33 +297,25 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
           {fpMethods.map((m, i) => {
             const isTotal = m.startsWith('Total');
             const key = methodKeyMap[m];
-            // Only the "Current User (End of the Month)" group (index 3) is
-            // wired to real data right now — see PhoController@getFamilyPlanningData.
-            const counts: FamilyPlanningBrackets | undefined = isTotal
-              ? totalsByBracket
-              : key
-                ? familyPlanning?.currentUsersByMethod[key]
-                : undefined;
 
             return (
               <tr key={i} className={isTotal ? 'bg-yellow-50 font-semibold' : ''}>
                 <Td className={`${m.startsWith('a.') || m.startsWith('b.') ? 'pl-8' : 'pl-4'}`}>{m}</Td>
-                {[0, 1, 2, 3, 4].map(j => (
-                  <React.Fragment key={j}>
-                    {j === 3 ? (
-                      <>
-                        <InputCell value={counts?.['10-14']} />
-                        <InputCell value={counts?.['15-19']} />
-                        <InputCell value={counts?.['20-49']} />
-                        <InputCell value={counts?.total} />
-                      </>
-                    ) : (
-                      <>
-                        <InputCell /><InputCell /><InputCell /><InputCell />
-                      </>
-                    )}
-                  </React.Fragment>
-                ))}
+                {[0, 1, 2, 3, 4, 5].map(j => {
+                  const counts: FamilyPlanningBrackets | undefined = isTotal
+                    ? columnGroupTotals[j]
+                    : key
+                      ? columnGroups[j]?.[key]
+                      : undefined;
+                  return (
+                    <React.Fragment key={j}>
+                      <InputCell value={counts?.['10-14']} />
+                      <InputCell value={counts?.['15-19']} />
+                      <InputCell value={counts?.['20-49']} />
+                      <InputCell value={counts?.total} />
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             );
           })}
@@ -282,30 +326,6 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
 };
 
 // ─── SECTION B: Maternal Care ─────────────────────────────────────────────────
-// ─── Section B data helpers ──────────────────────────────────────────────────
-// Sums several prenatal/postpartum age-bracket buckets together (used for the
-// "=(a+b+c)" subtotal rows).
-const sumAgeBrackets = (
-  data: Record<string, AgeBrackets> | undefined,
-  keys: string[],
-): AgeBrackets | undefined => {
-  if (!data) return undefined;
-  const result: AgeBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
-  let found = false;
-  keys.forEach((k) => {
-    const b = data[k];
-    if (b) {
-      found = true;
-      result['10-14'] += b['10-14'];
-      result['15-19'] += b['15-19'];
-      result['20-49'] += b['20-49'];
-      result.total += b.total;
-    }
-  });
-  return found ? result : undefined;
-};
-
-// Same idea, but for the sex-bracket intrapartum buckets.
 const sumSexBrackets = (
   data: Record<string, SexBrackets> | undefined,
   keys: string[],
@@ -325,7 +345,6 @@ const sumSexBrackets = (
   return found ? result : undefined;
 };
 
-// Renders a prenatal/postpartum row's 4 numeric InputCells from an AgeBrackets bucket.
 const AgeInputsFromData = ({ data }: { data?: AgeBrackets }) => (
   <>
     <InputCell value={data?.['10-14']} />
@@ -335,10 +354,6 @@ const AgeInputsFromData = ({ data }: { data?: AgeBrackets }) => (
   </>
 );
 
-// Intrapartum rows are broken down by newborn sex (male/female/total), but the
-// table's column headers are age-bracket shaped (10-14 | 15-19 | 20-49 | TOTAL).
-// We slot male → col1, female → col2, leave col3 blank, total → col4 so the
-// figures still land under a sensible header, without redesigning the table.
 const SexInputsAsFour = ({ data }: { data?: SexBrackets }) => (
   <>
     <InputCell value={data?.male} />
@@ -353,9 +368,6 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
   const intrapartum = maternalCare?.intrapartum;
   const postpartum = maternalCare?.postpartum;
 
-  // Index-aligned with `leftIndicators` / `rightIndicators` below. `undefined`
-  // means the sub-indicator can't be derived from the current schema (e.g.
-  // Resident vs. TRANS-IN splits) and is left for manual entry.
   const leftValueKeys: (string | undefined)[] = [
     undefined, undefined, 'anc8Completed', undefined, undefined, undefined, undefined, undefined, undefined,
     'nutritionAssessed', 'nutritionNormal', 'nutritionLow', 'nutritionHigh',
@@ -369,8 +381,6 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
     undefined, 'bpMeasured', 'highBpOrDanger', 'referred',
   ];
 
-  // Intrapartum: entries can be a single key, a list of keys to sum (for the
-  // "=(a+b+c)" subtotal rows), or undefined.
   const intraLeftValueKeys: (string | string[] | undefined)[] = [
     'totalDeliveries',
     ['attendantPhysician', 'attendantNurse', 'attendantMidwife'],
@@ -479,7 +489,6 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
     <div className="mb-6">
       <table className="w-full border-collapse text-xs">
         <tbody>
-          {/* Table B: 12 Columns */}
           <SectionHeader colSpan={12}>SECTION B. MATERNAL CARE AND SERVICES</SectionHeader>
           
           <tr className="bg-gray-100">
@@ -561,7 +570,6 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
 };
 
 // ─── SECTION C: Child Care ────────────────────────────────────────────────────
-// Renders a row's 3 numeric InputCells (Male | Female | Total) from a SexBrackets bucket.
 const SexInputsFromData = ({ data }: { data?: SexBrackets }) => (
   <>
     <InputCell value={data?.male} />
@@ -582,8 +590,6 @@ const SectionC = ({ childCare }: { childCare?: ChildCareData }) => {
     ['8. DPT-HiB-HepB 3', 1, '16. PCV 3'],
     ['9. OPV 1', 1, '17. MMR 1'],
   ];
-  // Index-aligned with `imm0_11` above. `child_immunization_records` cohort =
-  // children whose dateOfBirth falls in the current calendar year.
   const imm0_11LeftKeys: (string | undefined)[] = [
     'cpab', 'bcg24h', 'bcgLate', 'hepB24h', 'hepBLate', 'dpt1', 'dpt2', 'dpt3', 'opv1',
   ];
@@ -601,8 +607,6 @@ const SectionC = ({ childCare }: { childCare?: ChildCareData }) => {
     ['7. IPV 1', '15. CIC'],
     ['8. IPV 2', ''],
   ];
-  // Same child_immunization_records fields, but for the cohort born the
-  // previous calendar year (catching up on the same vaccination series).
   const immPrevLeftKeys: (string | undefined)[] = [
     'dpt1', 'dpt2', 'dpt3', 'opv1', 'opv2', 'opv3', 'ipv1', 'ipv2',
   ];
@@ -682,7 +686,6 @@ const SectionC = ({ childCare }: { childCare?: ChildCareData }) => {
 
   return (
     <div className="mb-6">
-      {/* Table C: 10 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={10}>SECTION C. CHILD CARE AND SERVICES</SectionHeader>
@@ -723,7 +726,68 @@ const SectionC = ({ childCare }: { childCare?: ChildCareData }) => {
 };
 
 // ─── SECTION D: Oral Health ───────────────────────────────────────────────────
-const SectionD = () => {
+type OhcMode = 'first' | 'firstFacility' | 'firstNonFacility' | 'completed' | 'completedFacility' | 'completedNonFacility';
+const ohcBracketKeyMap: Record<string, string> = {
+  '1. Children 1-4 years old who had their 1st visit to an oral health care professional within a year': 'children1_4',
+  '1a. Children 1-4 years old who had their 1st visit to a facility-based oral health care professional within a year': 'children1_4',
+  '1b. Children 1-4 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'children1_4',
+  '2. Children 5-9 years old who had their 1st visit to an oral health care professional within a year': 'children5_9',
+  '2a. Children 5-9 years old who had their 1st visit to a facility-based oral health care professional within a year': 'children5_9',
+  '2b. Children 5-9 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'children5_9',
+  '3. Adolescents 10-19 years old who had their 1st visit to an oral health care professional within a year': 'adolescents10_19',
+  '3a. Adolescents 10-19 years old who had their 1st visit to a facility-based oral health care professional within a year': 'adolescents10_19',
+  '3b. Adolescents 10-19 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'adolescents10_19',
+  '4. Adults 20-59 years old who had their 1st visit to an oral health care professional within a year': 'adults20_59',
+  '4a. Adults 20-59 years old who had their 1st visit to a facility-based oral health care professional within a year': 'adults20_59',
+  '4b. Adults 20-59 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'adults20_59',
+  '5. Senior Citizens 60 years old and above who had their 1st visit to an oral health care professional within a year': 'seniors60plus',
+  '5a. Senior Citizens 60 years old and above who had their 1st visit to a facility-based oral health care professional within a year': 'seniors60plus',
+  '5b. Senior Citizens 60 years old and above who had their 1st visit to a non-facility-based oral health care professional within a year': 'seniors60plus',
+  '6. Pregnant Women who had their 1st visit to an oral health care professional within a year': 'pregnant',
+  '6a. Pregnant Women who had their 1st visit to a facility-based oral health care professional within a year': 'pregnant',
+  '6b. Pregnant Women who had their 1st visit to a non-facility-based oral health care professional within a year': 'pregnant',
+  '1. Children 1-4 years old who completed 2 visits to an oral health care professional within a year': 'children1_4',
+  '1a. Children 1-4 years old who completed 2 visits to a facility-based oral health care professional within a year': 'children1_4',
+  '1b. Children 1-4 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'children1_4',
+  '2. Children 5-9 years old who completed 2 visits to an oral health care professional within a year': 'children5_9',
+  '2a. Children 5-9 years old who completed 2 visits to a facility-based oral health care professional within a year': 'children5_9',
+  '2b. Children 5-9 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'children5_9',
+  '3. Adolescents 10-19 years old who completed 2 visits to an oral health care professional within a year': 'adolescents10_19',
+  '3a. Adolescents 10-19 years old who completed 2 visits to a facility-based oral health care professional within a year': 'adolescents10_19',
+  '3b. Adolescents 10-19 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'adolescents10_19',
+  '4. Adults 20-59 years old who completed 2 visits to an oral health care professional within a year': 'adults20_59',
+  '4a. Adults 20-59 years old who completed 2 visits to a facility-based oral health care professional within a year': 'adults20_59',
+  '4b. Adults 20-59 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'adults20_59',
+  '5. Senior Citizens 60 years old and above who completed 2 visits to an oral health care professional within a year': 'seniors60plus',
+  '5a. Senior Citizens 60 years old and above who completed 2 visits to a facility-based oral health care professional within a year': 'seniors60plus',
+  '5b. Senior Citizens 60 years old and above who completed 2 visits to a non-facility-based oral health care professional within a year': 'seniors60plus',
+  '6. Pregnant Women who completed 2 visits to an oral health care professional within a year': 'pregnant',
+  '6a. Pregnant Women who completed 2 visits to a facility-based oral health care professional within a year': 'pregnant',
+  '6b. Pregnant Women who completed 2 visits to a non-facility-based oral health care professional within a year': 'pregnant',
+};
+const ohcModeForLabel = (label: string): OhcMode => {
+  const isCompleted = label.includes('completed 2 visits');
+  if (label.includes('facility-based') && !label.includes('non-facility')) {
+    return isCompleted ? 'completedFacility' : 'firstFacility';
+  }
+  if (label.includes('non-facility-based')) {
+    return isCompleted ? 'completedNonFacility' : 'firstNonFacility';
+  }
+  return isCompleted ? 'completed' : 'first';
+};
+const ohcDataset = (oralHealth: OralHealthData | undefined, mode: OhcMode): Record<string, SexBrackets> | undefined => {
+  if (!oralHealth) return undefined;
+  return {
+    first: oralHealth.firstVisit,
+    firstFacility: oralHealth.firstVisitFacility,
+    firstNonFacility: oralHealth.firstVisitNonFacility,
+    completed: oralHealth.completed2Visits,
+    completedFacility: oralHealth.completed2VisitsFacility,
+    completedNonFacility: oralHealth.completed2VisitsNonFacility,
+  }[mode];
+};
+
+const SectionD = ({ oralHealth }: { oralHealth?: OralHealthData }) => {
   const firstVisitLeft: [string, number][] = [
     ['FIRST VISIT TO AN ORAL HEALTH CARE PROFESSIONAL', 0],
     ['1. Infants 0-11 months old who had their first dental visit', 1],
@@ -771,7 +835,6 @@ const SectionD = () => {
 
   return (
     <div className="mb-6">
-      {/* Table D: 10 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={10}>SECTION D. ORAL HEALTH CARE SERVICES</SectionHeader>
@@ -784,13 +847,19 @@ const SectionD = () => {
           {Array.from({ length: maxLen }).map((_, i) => {
             const [lLabel, lIndent] = firstVisitLeft[i] ?? ['', 1];
             const [rLabel, rIndent] = completedLeft[i] ?? ['', 1];
+
+            const lData = lLabel.startsWith('1. Infants 0-11 months old')
+              ? oralHealth?.infantFirstVisit
+              : ohcDataset(oralHealth, ohcModeForLabel(lLabel))?.[ohcBracketKeyMap[lLabel]];
+            const rData = ohcDataset(oralHealth, ohcModeForLabel(rLabel))?.[ohcBracketKeyMap[rLabel]];
+
             return (
               <tr key={i} className={lIndent === 0 ? 'bg-blue-50' : ''}>
                 <Td className={`w-5/12 ${indentClass(lIndent)}`}>{lLabel}</Td>
                 {lIndent === 0 ? <td colSpan={4} className="border border-gray-400"></td> :
-                  <><SexInputs /><InputCell /></>}
+                  <><SexInputsFromData data={lData} /><InputCell /></>}
                 <Td className={`w-5/12 ${indentClass(rIndent ?? 1)}`}>{rLabel}</Td>
-                {rLabel ? <><SexInputs /><InputCell /></> :
+                {rLabel ? <><SexInputsFromData data={rData} /><InputCell /></> :
                   <td colSpan={4} className="border border-gray-400"></td>}
               </tr>
             );
@@ -802,7 +871,12 @@ const SectionD = () => {
 };
 
 // ─── SECTION E: Non-Communicable Diseases ─────────────────────────────────────
-const SectionE = () => {
+const lifestyleKeyOrder = [
+  'currentSmoker', 'smokerTobacco', 'smokerVaporized', 'smokerBoth',
+  'providedBti', 'bingeAlcohol', 'insufficientPa', 'unhealthyDiet', 'overweight', 'obese',
+];
+
+const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonCommunicableDiseaseData }) => {
   const lifestyle = [
     '1a. Current Smokers', 'a. Tobacco Products', 'b. Vaporized Nicotine Products', 'c. Both',
     '1b. Provided Brief Tobacco Intervention', '1c. Binge Drinker', '1d. Insufficient physical activities',
@@ -886,32 +960,26 @@ const SectionE = () => {
 
   return (
     <div className="mb-6">
-      {/* Table E: 10 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={10}>SECTION E. NON-COMMUNICABLE DISEASES</SectionHeader>
 
-          {/* Lifestyle */}
           <SubSectionHeader colSpan={10}>E1. Lifestyle Related</SubSectionHeader>
           <tr className="bg-gray-100">
-            <Th className="text-left w-5/12">
-              1. Adults 20-59 years old who were risk assessed using the PhilPEN protocol
-            </Th>
+            <Th className="text-left w-5/12">1. Adults 20-59 years old who were risk assessed using the PhilPEN protocol</Th>
             <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
-            <Th className="text-left w-5/12">
-              2. Senior Citizens 60 years old and above who were risk assessed using the PhilPEN protocol
-            </Th>
+            <Th className="text-left w-5/12">2. Senior Citizens 60 years old and above who were risk assessed using the PhilPEN protocol</Th>
             <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
           </tr>
           {lifestyle.map((l, i) => (
             <tr key={i}>
-              <Td className="pl-4">{l}</Td><SexInputs /><InputCell />
+              <Td className="pl-4">{l}</Td>
+              <SexInputsFromData data={nonCommunicableDisease?.lifestyle2059?.[lifestyleKeyOrder[i]]} /><InputCell />
               <Td className="pl-4">{lifestyle2[i] ?? ''}</Td>
-              {lifestyle2[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {lifestyle2[i] ? <><SexInputsFromData data={nonCommunicableDisease?.lifestyle60plus?.[lifestyleKeyOrder[i]]} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
-          {/* CVD & Diabetes */}
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">E2. Cardiovascular Disease Prevention and Control</Th>
             <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -926,18 +994,19 @@ const SectionE = () => {
           </tr>
           <tr>
             <Td className="pl-4">The total number of identified adult (20-59 years old) hypertensives in the current month</Td>
-            <SexInputs /><InputCell />
+            <SexInputsFromData data={nonCommunicableDisease?.cvd2059} /><InputCell />
             <Td className="pl-4">The total number of identified adult (20-59 years old) with Type II Diabetes in the current month</Td>
-            <SexInputs /><InputCell />
+            <SexInputsFromData data={nonCommunicableDisease?.dm2059} /><InputCell />
           </tr>
           {cvdRows.map(([l, r], i) => (
             <tr key={i}>
-              <Td className="pl-4">{l}</Td><SexInputs /><InputCell />
-              <Td className="pl-4">{r}</Td><SexInputs /><InputCell />
+              <Td className="pl-4">{l}</Td>
+              <SexInputsFromData data={i === 0 ? nonCommunicableDisease?.cvd60plus : undefined} /><InputCell />
+              <Td className="pl-4">{r}</Td>
+              <SexInputsFromData data={i === 0 ? nonCommunicableDisease?.dm60plus : undefined} /><InputCell />
             </tr>
           ))}
 
-          {/* Blindness */}
           <SubSectionHeader colSpan={10}>E4. Blindness Prevention Program</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th>
@@ -948,17 +1017,29 @@ const SectionE = () => {
           {Array.from({ length: maxEye }).map((_, i) => {
             const l = eyeLeft[i] ?? '';
             const r = eyeRight[i] ?? '';
+            const blindnessKey = (label: string): string | undefined => {
+              if (label.startsWith('1a.')) return 'screened0_9';
+              if (label.startsWith('1b.')) return 'screened10_19';
+              if (label.startsWith('1c.')) return 'screened20_59';
+              if (label.startsWith('1d.')) return 'screened60plus';
+              if (label === '2. Screened and identified with eye disease/s') return 'identified';
+              if (label === '3. Identified with eye disease/s and referred to an eye health professional') return 'referred';
+              return undefined;
+            };
+            const lKey = blindnessKey(l);
+            const rKey = blindnessKey(r);
+            const lData = lKey ? nonCommunicableDisease?.blindness?.[lKey] : undefined;
+            const rData = rKey ? nonCommunicableDisease?.blindness?.[rKey] : undefined;
             return (
               <tr key={i} className={l.startsWith('E5') || l.startsWith('E6') ? 'bg-blue-50 font-bold' : ''}>
                 <Td className="pl-4 w-5/12">{l}</Td>
-                {l ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+                {l ? <><SexInputsFromData data={lData} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
                 <Td className="pl-4 w-5/12">{r}</Td>
-                {r ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+                {r ? <><SexInputsFromData data={rData} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               </tr>
             );
           })}
 
-          {/* Mental Health */}
           <SubSectionHeader colSpan={10}>E7. Mental Health</SubSectionHeader>
           <tr>
             <Td className="pl-4" colSpan={5}>
@@ -968,34 +1049,65 @@ const SectionE = () => {
             </Td>
             <td colSpan={5} className="border border-gray-400">
               <div className="grid grid-cols-8 gap-0 h-full">
-                {[...Array(8)].map((_, i) => (
-                  <input key={i} type="number" className="border-r border-gray-300 text-center text-xs p-1 w-full outline-none" defaultValue="" />
+                {(['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus'] as const).flatMap((key) => [
+                  nonCommunicableDisease?.mentalHealth?.[key]?.male,
+                  nonCommunicableDisease?.mentalHealth?.[key]?.female,
+                ]).map((v, i) => (
+                  <div key={i} className="border-r border-gray-300 text-center text-xs p-1 w-full">{v ?? ''}</div>
                 ))}
               </div>
             </td>
           </tr>
 
-          {/* Cancer */}
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">E8. Cervical Cancer Prevention and Control Services</Th>
             <Th colSpan={4}>Total / Remarks</Th>
             <Th className="text-left w-5/12">E9. Breast Cancer Prevention and Control Services</Th>
             <Th colSpan={4}>Total / Remarks</Th>
           </tr>
-          {Array.from({ length: maxCancer }).map((_, i) => {
-            const l = cervicalLeft[i] ?? '';
-            const r = breastRight[i] ?? '';
-            return (
-              <tr key={i}>
-                <Td className="pl-4 w-5/12">{l}</Td>
-                {l ? <><InputCell /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
-                <td colSpan={2} className="border border-gray-400"></td>
-                <Td className="pl-4 w-5/12">{r}</Td>
-                {r ? <><InputCell /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
-                <td colSpan={2} className="border border-gray-400"></td>
-              </tr>
-            );
-          })}
+          {(() => {
+            const cervicalValue = (label: string): number | undefined => {
+              const c = nonCommunicableDisease?.cervical;
+              if (!c) return undefined;
+              if (label.startsWith('1. Women aged 30-65')) return c.screened;
+              if (label === '1a. VIA') return c.via;
+              if (label === '2a. PapSmear') return c.papSmear;
+              if (label === '3a. HPV DNA') return c.hpvDna;
+              if (label === '4a. Assessed Only') return c.assessedOnly;
+              if (label.startsWith('2. Women aged 30-65')) return c.suspicious;
+              if (label.startsWith('3. Women aged 30-65')) return c.linkedToCare;
+              if (label === '3a. Treated') return c.linkedTreated;
+              if (label === '3b. Referred') return c.linkedReferred;
+              return undefined;
+            };
+            const breastValue = (label: string): number | undefined => {
+              const b = nonCommunicableDisease?.breast;
+              if (!b) return undefined;
+              if (label.startsWith('1. Number of 30-69')) return b.seen;
+              if (label.startsWith('2. Number of high-risk')) return b.highRiskOrSymptomatic;
+              if (label === '3a. Clinical Breast Examination') return b.providedCbe;
+              if (label === '3b. Mammogram') return b.providedMammogram;
+              if (label === '4a. Clinical Breast Examination') return b.remarkableCbe;
+              if (label === '4b. Mammogram') return b.remarkableMammogram;
+              if (label.startsWith('5. High-risk')) return b.linkedToCare;
+              if (label.startsWith('6. Asymptomatic')) return b.asymptomaticScreened;
+              return undefined;
+            };
+            return Array.from({ length: maxCancer }).map((_, i) => {
+              const l = cervicalLeft[i] ?? '';
+              const r = breastRight[i] ?? '';
+              return (
+                <tr key={i}>
+                  <Td className="pl-4 w-5/12">{l}</Td>
+                  {l ? <><InputCell value={cervicalValue(l)} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  <td colSpan={2} className="border border-gray-400"></td>
+                  <Td className="pl-4 w-5/12">{r}</Td>
+                  {r ? <><InputCell value={breastValue(r)} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  <td colSpan={2} className="border border-gray-400"></td>
+                </tr>
+              );
+            });
+          })()}
         </tbody>
       </table>
     </div>
@@ -1003,35 +1115,95 @@ const SectionE = () => {
 };
 
 // ─── SECTION F: Environmental Health ─────────────────────────────────────────
-const SectionF = () => (
-  <div className="mb-6">
-    {/* Table F: 6 Columns */}
-    <table className="w-full border-collapse text-xs">
-      <tbody>
-        <SectionHeader colSpan={6}>SECTION F. ENVIRONMENTAL HEALTH AND SANITATION</SectionHeader>
-        <tr className="bg-gray-100">
-          <Th className="text-left w-5/12">G1. Water — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
-          <Th className="text-left w-5/12">G1. Sanitation — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
-        </tr>
-        {([
-          ['1. Households (HHs) with access to improved water supply - Total', '1. HH with basic sanitation facility - Total'],
-          ['1a. HH with Level I', '1a. HH with pour/flush toilet connected to a septic tank'],
-          ['1b. HH with Level II', '1b. HHs with pour/flush toilet connected to community sewer/sewerage system or any other approved treatment system'],
-          ['1c. HH with Level III', '1c. HH with Ventilated Improved Pit (VIP) Latrine'],
-          ['2. HH using safely managed drinking water service', '2. HH using safely managed sanitation service'],
-        ] as [string, string][]).map(([l, r], i) => (
-          <tr key={i}>
-            <Td className="pl-4 w-5/12">{l}</Td><InputCell /><InputCell />
-            <Td className="pl-4 w-5/12">{r}</Td><InputCell /><InputCell />
+const SectionF = ({ environmentalHealth }: { environmentalHealth?: EnvironmentalHealthData }) => {
+  const waterValues = [
+    environmentalHealth ? environmentalHealth.water.levelI + environmentalHealth.water.levelII + environmentalHealth.water.levelIII : undefined,
+    environmentalHealth?.water.levelI,
+    environmentalHealth?.water.levelII,
+    environmentalHealth?.water.levelIII,
+    environmentalHealth?.water.safelyManaged,
+  ];
+  const sanitationValues = [
+    environmentalHealth?.sanitation.basicSanitationFacility,
+    environmentalHealth?.sanitation.pourFlushSeptic,
+    environmentalHealth?.sanitation.pourFlushSewer,
+    environmentalHealth?.sanitation.vip,
+    environmentalHealth?.sanitation.safelyManagedSanitation,
+  ];
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={6}>SECTION F. ENVIRONMENTAL HEALTH AND SANITATION</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">G1. Water — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">G1. Sanitation — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+          {([
+            ['1. Households (HHs) with access to improved water supply - Total', '1. HH with basic sanitation facility - Total'],
+            ['1a. HH with Level I', '1a. HH with pour/flush toilet connected to a septic tank'],
+            ['1b. HH with Level II', '1b. HHs with pour/flush toilet connected to community sewer/sewerage system or any other approved treatment system'],
+            ['1c. HH with Level III', '1c. HH with Ventilated Improved Pit (VIP) Latrine'],
+            ['2. HH using safely managed drinking water service', '2. HH using safely managed sanitation service'],
+          ] as [string, string][]).map(([l, r], i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{l}</Td><InputCell value={waterValues[i]} /><InputCell />
+              <Td className="pl-4 w-5/12">{r}</Td><InputCell value={sanitationValues[i]} /><InputCell />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 // ─── SECTION G: Infectious Diseases ──────────────────────────────────────────
-const SectionG = () => {
+const filariasisKeyMap: Record<string, string> = {
+  '1a. Nocturnal Blood Examination (NBE)': 'examinedNbe',
+  '1b. Rapid Diagnostic Test (RDT)': 'examinedRdt',
+  '2a. Nocturnal Blood Examination (NBE)': 'positiveNbe',
+  '2b. Rapid Diagnostic Test (RDT)': 'positiveRdt',
+  '3. Lymphedema': 'lymphedema',
+  '4. Elephentiasis': 'elephantiasis',
+  '3. Hydrocele': 'hydrocele',
+  '4. Number of individuals who received Mass Drug Administration': 'receivedMda',
+};
+const schistoKeyMap: Record<string, string> = {
+  '1. Patients Seen': 'patientsSeen',
+  '2. Clinical/Suspected Schistosomiasis Cases Seen': 'suspectedCases',
+  '13. Confirmed Schistosomiasis Cases Referred to Hospital Facility': 'referredToHospital',
+  '14. Individuals dewormed with one (1) dose of Praziquantel during MDA': 'mdaGiven',
+};
+const sthKeyMap: Record<string, string> = {
+  '1. Screened for STH': 'screened',
+  '2a. Resident': 'suspectedResident',
+  '2b. Non-Resident': 'suspectedNonResident',
+  '4a. Resident': 'confirmedResident',
+  '4b. Non-Resident': 'confirmedNonResident',
+  '6a. Resident': 'treatedResident',
+  '6b. Non-Resident': 'treatedNonResident',
+  '8. 1-4 years old who were dewormed during January MDA': 'januaryMda',
+  '9. 1-4 years old who were dewormed during July MDA': 'julyMda',
+};
+const leprosyKeyMap: Record<string, string> = {
+  '1. No. of registered Leprosy cases': 'registered',
+  '2. No. of newly detected case': 'newlyDetected',
+  '3. Confirmed Leprosy Cases': 'confirmed',
+  '4. Completed fixed duration Multi-Drug Therapy (MDT)': 'completedMdt',
+  '5. No. of confirmed leprosy cases treated': 'treated',
+  '6. Newly Detected Cases with Grade 2 Disabilities': 'grade2Disability',
+};
+const infectiousDataFor = (
+  dataset: Record<string, SexBrackets> | undefined,
+  map: Record<string, string>,
+  label: string,
+): SexBrackets | undefined => {
+  const key = map[label];
+  return key && dataset ? dataset[key] : undefined;
+};
+
+const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDiseaseData }) => {
   const filiariasisLeft = [
     '1. No. of individual examined for lymphatic filariasis',
     '1a. Nocturnal Blood Examination (NBE)', '1b. Rapid Diagnostic Test (RDT)',
@@ -1139,12 +1311,10 @@ const SectionG = () => {
 
   return (
     <div className="mb-6">
-      {/* Table G: 10 Columns */}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={10}>SECTION G. INFECTIOUS DISEASE PREVENTION AND CONTROL SERVICES</SectionHeader>
 
-          {/* Filariasis */}
           <SubSectionHeader colSpan={10}>A. Filariasis</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -1153,24 +1323,22 @@ const SectionG = () => {
           {Array.from({ length: maxFil }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{filiariasisLeft[i] ?? ''}</Td>
-              {filiariasisLeft[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {filiariasisLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.filariasis, filariasisKeyMap, filiariasisLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{filiariasisRight[i] ?? ''}</Td>
-              {filiariasisRight[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {filiariasisRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.filariasis, filariasisKeyMap, filiariasisRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
-          {/* Rabies */}
           <SubSectionHeader colSpan={10}>B. Rabies</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">1. Animal Bites — No. of Animal Bites</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
             <Th className="text-left w-5/12">2. Rabies Death — No. of Rabies Death</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
           </tr>
           <tr>
-            <Td className="pl-4"></Td><SexInputs /><InputCell />
-            <Td className="pl-4"></Td><SexInputs /><InputCell />
+            <Td className="pl-4"></Td><SexInputsFromData data={infectiousDisease?.rabies?.animalBites} /><InputCell />
+            <Td className="pl-4"></Td><SexInputsFromData data={infectiousDisease?.rabies?.rabiesDeaths} /><InputCell />
           </tr>
 
-          {/* Schistosomiasis */}
           <SubSectionHeader colSpan={10}>C. Schistosomiasis</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -1179,13 +1347,12 @@ const SectionG = () => {
           {Array.from({ length: maxSch }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{schLeft[i] ?? ''}</Td>
-              {schLeft[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {schLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.schistosomiasis, schistoKeyMap, schLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{schRight[i] ?? ''}</Td>
-              {schRight[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {schRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.schistosomiasis, schistoKeyMap, schRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
-          {/* STH */}
           <SubSectionHeader colSpan={10}>D. Soil-Transmitted Helminthiasis</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -1194,13 +1361,12 @@ const SectionG = () => {
           {Array.from({ length: maxSth }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{sthLeft[i] ?? ''}</Td>
-              {sthLeft[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {sthLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.sth, sthKeyMap, sthLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{sthRight[i] ?? ''}</Td>
-              {sthRight[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {sthRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.sth, sthKeyMap, sthRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
-          {/* Leprosy */}
           <SubSectionHeader colSpan={10}>E. Leprosy</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -1209,13 +1375,12 @@ const SectionG = () => {
           {Array.from({ length: maxLep }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{lepLeft[i] ?? ''}</Td>
-              {lepLeft[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {lepLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.leprosy, leprosyKeyMap, lepLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{lepRight[i] ?? ''}</Td>
-              {lepRight[i] ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {lepRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.leprosy, leprosyKeyMap, lepRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
-          {/* HIV-AIDS/STI */}
           <SubSectionHeader colSpan={10}>F. HIV-AIDS/STI</SubSectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
@@ -1238,7 +1403,6 @@ const SectionG = () => {
 // ─── SECTION H: Vital Statistics ─────────────────────────────────────────────
 const SectionH = () => (
   <div className="mb-6">
-    {/* Table H: 11 Columns */}
     <table className="w-full border-collapse text-xs">
       <tbody>
         <SectionHeader colSpan={11}>SECTION H. VITAL STATISTICS</SectionHeader>
@@ -1273,7 +1437,7 @@ const SectionH = () => (
           <Td className="pl-4">2. Infant Mortality</Td>
           <SexInputs />
           <InputCell />
-          <td className="border border-gray-400"></td> {/* Fix: Replaced colSpan={2} which overextended the left side to 7 cols */}
+          <td className="border border-gray-400"></td>
           <td colSpan={5} className="border border-gray-400"></td>
         </tr>
       </tbody>
@@ -1282,8 +1446,231 @@ const SectionH = () => (
 );
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-export default function M1AllPrograms({ familyPlanning, maternalCare, childCare }: M1AllProgramsProps) {
+export default function M1AllPrograms({
+  familyPlanning, maternalCare, childCare,
+  oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
+  regions = [], provinces = [], municipalities = [], barangays = []
+}: M1AllProgramsProps) {
   const [activeSection, setActiveSection] = useState<string>('all');
+
+  // Form State Values
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedRegion, setSelectedRegion] = useState('');
+  const [selectedProvince, setSelectedProvince] = useState('');
+  const [selectedMunicipality, setSelectedMunicipality] = useState('');
+  const [selectedBarangay, setSelectedBarangay] = useState('');
+
+  // ─── Live Family Planning Report Data (fetched from PhoReportController@familyPlaning) ───
+  const [familyPlanningData, setFamilyPlanningData] = useState<FamilyPlanningData | undefined>(familyPlanning);
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpError, setFpError] = useState<string | null>(null);
+
+  // ─── Live Maternal Care Report Data (fetched from PhoReportController@maternalCare) ───
+  const [maternalCareData, setMaternalCareData] = useState<MaternalCareData | undefined>(maternalCare);
+  const [mcLoading, setMcLoading] = useState(false);
+  const [mcError, setMcError] = useState<string | null>(null);
+
+  // ─── Live Child Care Report Data (fetched from PhoReportController@childCare) ───
+  const [childCareData, setChildCareData] = useState<ChildCareData | undefined>(childCare);
+  const [ccLoading, setCcLoading] = useState(false);
+  const [ccError, setCcError] = useState<string | null>(null);
+
+  // ─── Live Oral Health Report Data (fetched from PhoReportController@oralHealthCare) ───
+  const [oralHealthData, setOralHealthData] = useState<OralHealthData | undefined>(oralHealth);
+  const [ohLoading, setOhLoading] = useState(false);
+  const [ohError, setOhError] = useState<string | null>(null);
+
+  // ─── Live Non-Communicable Disease Report Data (fetched from PhoReportController@nonCommunicableDisease) ───
+  const [nonCommunicableDiseaseData, setNonCommunicableDiseaseData] = useState<NonCommunicableDiseaseData | undefined>(nonCommunicableDisease);
+  const [ncdLoading, setNcdLoading] = useState(false);
+  const [ncdError, setNcdError] = useState<string | null>(null);
+
+  // ─── Live Environmental Health Report Data (fetched from PhoReportController@environmentalHealth) ───
+  const [environmentalHealthData, setEnvironmentalHealthData] = useState<EnvironmentalHealthData | undefined>(environmentalHealth);
+  const [ehLoading, setEhLoading] = useState(false);
+  const [ehError, setEhError] = useState<string | null>(null);
+
+  // ─── Live Infectious Disease Report Data (fetched from PhoReportController@infectiousDisease) ───
+  const [infectiousDiseaseData, setInfectiousDiseaseData] = useState<InfectiousDiseaseData | undefined>(infectiousDisease);
+  const [idLoading, setIdLoading] = useState(false);
+  const [idError, setIdError] = useState<string | null>(null);
+
+  // ─── Cascading Location Filters ──────────────────────────────────────────
+  const filteredProvinces = useMemo(() => {
+    return provinces.filter(p => p.regCode === selectedRegion);
+  }, [selectedRegion, provinces]);
+
+  const filteredMunicipalities = useMemo(() => {
+    return municipalities.filter(m => m.provCode === selectedProvince);
+  }, [selectedProvince, municipalities]);
+
+  const filteredBarangays = useMemo(() => {
+    return barangays.filter(b => b.citymunCode === selectedMunicipality);
+  }, [selectedMunicipality, barangays]);
+
+  // Static Month Array Mapping
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  // ─── Filter -> API Query Builder (shared: month/year/region/province/municipality/barangay) ───
+  const buildReportQuery = () => {
+    const params = new URLSearchParams();
+
+    const monthNumber = selectedMonth
+      ? months.indexOf(selectedMonth) + 1
+      : new Date().getMonth() + 1;
+    params.set('month', String(monthNumber));
+    params.set('year', selectedYear || String(new Date().getFullYear()));
+
+    if (selectedRegion) params.set('region', selectedRegion);
+    if (selectedProvince) params.set('province', selectedProvince);
+    if (selectedMunicipality) params.set('municipality', selectedMunicipality);
+    if (selectedBarangay) params.set('barangay', selectedBarangay);
+
+    return params.toString();
+  };
+
+  // ─── Fetch filtered report from PhoReportController@familyPlaning ───────
+  const fetchFamilyPlanningReport = async () => {
+    setFpLoading(true);
+    setFpError(null);
+    try {
+      const res = await fetch(`/api/family-planning/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setFamilyPlanningData(json.data as FamilyPlanningData);
+    } catch (err) {
+      setFpError(err instanceof Error ? err.message : 'Failed to load Family Planning report');
+    } finally {
+      setFpLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@maternalCare (SECTION B) ───
+  const fetchMaternalCareReport = async () => {
+    setMcLoading(true);
+    setMcError(null);
+    try {
+      const res = await fetch(`/api/maternal-care/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setMaternalCareData(json.data as MaternalCareData);
+    } catch (err) {
+      setMcError(err instanceof Error ? err.message : 'Failed to load Maternal Care report');
+    } finally {
+      setMcLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@childCare (SECTION C) ───
+  const fetchChildCareReport = async () => {
+    setCcLoading(true);
+    setCcError(null);
+    try {
+      const res = await fetch(`/api/child-care/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setChildCareData(json.data as ChildCareData);
+    } catch (err) {
+      setCcError(err instanceof Error ? err.message : 'Failed to load Child Care report');
+    } finally {
+      setCcLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@oralHealthCare (SECTION D) ───
+  const fetchOralHealthReport = async () => {
+    setOhLoading(true);
+    setOhError(null);
+    try {
+      const res = await fetch(`/api/oral-health/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setOralHealthData(json.data as OralHealthData);
+    } catch (err) {
+      setOhError(err instanceof Error ? err.message : 'Failed to load Oral Health report');
+    } finally {
+      setOhLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@nonCommunicableDisease (SECTION E) ───
+  const fetchNonCommunicableDiseaseReport = async () => {
+    setNcdLoading(true);
+    setNcdError(null);
+    try {
+      const res = await fetch(`/api/non-communicable-disease/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setNonCommunicableDiseaseData(json.data as NonCommunicableDiseaseData);
+    } catch (err) {
+      setNcdError(err instanceof Error ? err.message : 'Failed to load Non-Communicable Disease report');
+    } finally {
+      setNcdLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@environmentalHealth (SECTION F) ───
+  const fetchEnvironmentalHealthReport = async () => {
+    setEhLoading(true);
+    setEhError(null);
+    try {
+      const res = await fetch(`/api/environmental-health/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setEnvironmentalHealthData(json.data as EnvironmentalHealthData);
+    } catch (err) {
+      setEhError(err instanceof Error ? err.message : 'Failed to load Environmental Health report');
+    } finally {
+      setEhLoading(false);
+    }
+  };
+
+  // ─── Fetch filtered report from PhoReportController@infectiousDisease (SECTION G) ───
+  const fetchInfectiousDiseaseReport = async () => {
+    setIdLoading(true);
+    setIdError(null);
+    try {
+      const res = await fetch(`/api/infectious-disease/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setInfectiousDiseaseData(json.data as InfectiousDiseaseData);
+    } catch (err) {
+      setIdError(err instanceof Error ? err.message : 'Failed to load Infectious Disease report');
+    } finally {
+      setIdLoading(false);
+    }
+  };
+
+  // ─── Apply Filters -> fetch every report tied to a live endpoint ─────────
+  const applyFilters = async () => {
+    await Promise.all([
+      fetchFamilyPlanningReport(),
+      fetchMaternalCareReport(),
+      fetchChildCareReport(),
+      fetchOralHealthReport(),
+      fetchNonCommunicableDiseaseReport(),
+      fetchEnvironmentalHealthReport(),
+      fetchInfectiousDiseaseReport(),
+    ]);
+  };
 
   const sections = [
     { id: 'all', label: 'All' },
@@ -1299,6 +1686,123 @@ export default function M1AllPrograms({ familyPlanning, maternalCare, childCare 
 
   const show = (id: string) => activeSection === 'all' || activeSection === id;
 
+  const DynamicFormHeader = () => (
+    <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+      
+      {/* Col 1: Time Parameters */}
+      <div className="space-y-2">
+        <label className="block font-semibold text-gray-700">Reporting Month</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+        >
+          <option value="">Select Month</option>
+          {months.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        <label className="block font-semibold text-gray-700 mt-2">Year</label>
+        <input 
+          type="text"
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500 text-center"
+          value={selectedYear}
+          onChange={(e) => setSelectedYear(e.target.value)}
+          placeholder="YYYY"
+        />
+      </div>
+
+      {/* Col 2: Region & Province Nodes */}
+      <div className="space-y-2">
+        <label className="block font-semibold text-gray-700">Region</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+          value={selectedRegion}
+          onChange={(e) => {
+            setSelectedRegion(e.target.value);
+            setSelectedProvince('');
+            setSelectedMunicipality('');
+            setSelectedBarangay('');
+          }}
+        >
+          <option value="">Select Region</option>
+          {regions.map(r => <option key={r.regCode} value={r.regCode}>{r.regDesc}</option>)}
+        </select>
+
+        <label className="block font-semibold text-gray-700 mt-2">Province</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+          value={selectedProvince}
+          disabled={!selectedRegion}
+          onChange={(e) => {
+            setSelectedProvince(e.target.value);
+            setSelectedMunicipality('');
+            setSelectedBarangay('');
+          }}
+        >
+          <option value="">Select Province</option>
+          {filteredProvinces.map(p => <option key={p.provCode} value={p.provCode}>{p.provDesc}</option>)}
+        </select>
+      </div>
+
+      {/* Col 3: Municipality & Barangay Leaf Nodes */}
+      <div className="space-y-2">
+        <label className="block font-semibold text-gray-700">Municipality / City</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+          value={selectedMunicipality}
+          disabled={!selectedProvince}
+          onChange={(e) => {
+            setSelectedMunicipality(e.target.value);
+            setSelectedBarangay('');
+          }}
+        >
+          <option value="">Select Municipality</option>
+          {filteredMunicipalities.map(m => <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>)}
+        </select>
+
+        <label className="block font-semibold text-gray-700 mt-2">Barangay</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+          value={selectedBarangay}
+          disabled={!selectedMunicipality}
+          onChange={(e) => setSelectedBarangay(e.target.value)}
+        >
+          <option value="">Select Barangay</option>
+          {filteredBarangays.map(b => <option key={b.brgyCode} value={b.brgyCode}>{b.brgyDesc}</option>)}
+        </select>
+      </div>
+
+      {/* Col 4: Apply Filters -> PhoReportController@familyPlaning */}
+      <div className="md:col-span-3 flex flex-wrap items-center gap-3 pt-1 border-t border-slate-200 mt-1">
+        <button
+          type="button"
+          onClick={applyFilters}
+          disabled={fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading}
+          className="bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700 transition text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {(fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading) ? 'Loading Report…' : 'Apply Filters'}
+        </button>
+        {(fpError || mcError || ccError || ohError || ncdError || ehError || idError) && (
+          <span className="text-red-600 text-xs font-medium">
+            {[fpError, mcError, ccError, ohError, ncdError, ehError, idError].filter(Boolean).join(' · ')}
+          </span>
+        )}
+        {!fpError && !mcError && !ccError && !ohError && !ncdError && !ehError && !idError &&
+          !fpLoading && !mcLoading && !ccLoading && !ohLoading && !ncdLoading && !ehLoading && !idLoading &&
+          (familyPlanningData || maternalCareData || childCareData || oralHealthData || nonCommunicableDiseaseData || environmentalHealthData || infectiousDiseaseData) && (
+          <span className="text-gray-500 text-xs">
+            Showing data for {selectedMonth || months[new Date().getMonth()]} {selectedYear}
+            {selectedBarangay && filteredBarangays.find(b => b.brgyCode === selectedBarangay)
+              ? ` · ${filteredBarangays.find(b => b.brgyCode === selectedBarangay)?.brgyDesc}`
+              : selectedMunicipality && filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)
+                ? ` · ${filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)?.citymunDesc}`
+                : ''}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-4">
       {/* Header */}
@@ -1308,6 +1812,12 @@ export default function M1AllPrograms({ familyPlanning, maternalCare, childCare 
           <p className="text-xs text-gray-500">FHSIS Monthly Report Form</p>
         </div>
         <div className="flex gap-2">
+          <a
+            href="/fhsis/reports/export-m1-all"
+            className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 transition text-sm inline-flex items-center"
+          >
+            Download M1 (.xlsx)
+          </a>
           <button
             onClick={() => window.print()}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
@@ -1334,18 +1844,17 @@ export default function M1AllPrograms({ familyPlanning, maternalCare, childCare 
         ))}
       </div>
 
-      {/* Form fields */}
-      <FormHeader />
+      <DynamicFormHeader />
 
       {/* Sections */}
       <div className="overflow-x-auto space-y-2">
-        {show('a') && <SectionA familyPlanning={familyPlanning} />}
-        {show('b') && <SectionB maternalCare={maternalCare} />}
-        {show('c') && <SectionC childCare={childCare} />}
-        {show('d') && <SectionD />}
-        {show('e') && <SectionE />}
-        {show('f') && <SectionF />}
-        {show('g') && <SectionG />}
+        {show('a') && <SectionA familyPlanning={familyPlanningData} />}
+        {show('b') && <SectionB maternalCare={maternalCareData} />}
+        {show('c') && <SectionC childCare={childCareData} />}
+        {show('d') && <SectionD oralHealth={oralHealthData} />}
+        {show('e') && <SectionE nonCommunicableDisease={nonCommunicableDiseaseData} />}
+        {show('f') && <SectionF environmentalHealth={environmentalHealthData} />}
+        {show('g') && <SectionG infectiousDisease={infectiousDiseaseData} />}
         {show('h') && <SectionH />}
       </div>
     </div>

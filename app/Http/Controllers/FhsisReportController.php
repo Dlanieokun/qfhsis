@@ -16,6 +16,7 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class FhsisReportController extends Controller
 {
@@ -5115,6 +5116,244 @@ class FhsisReportController extends Controller
         |--------------------------------------------------------------------------
         */
         $filename = "TCL_PHILPEN_RISK_ASSESSMENT_{$year}_{$barangay}.xlsx";
+        $savePath = storage_path("app/{$filename}");
+        (new Xlsx($spreadsheet))->save($savePath);
+
+        return response()->download($savePath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Generate the DOH FHSIS "M1_All Programs" consolidated monthly report.
+     *
+     * Unlike the other *Download() methods (which build a Target Client List
+     * sheet from scratch), this loads the official M1 template — because it
+     * already carries the exact section layout, merged cells, and DOH-approved
+     * wording that the target-client-list sheets don't need to replicate.
+     *
+     * SETUP: copy the provided "M1_All Programs.xlsx" template to
+     *        storage/app/templates/M1_All_Programs.xlsx
+     *
+     * NOTE: This form has ~350 line items across Sections A-G + Vital
+     * Statistics. Only indicators with a direct, unambiguous match to data
+     * already aggregated elsewhere in this controller (see generalReport())
+     * are populated here. Everything else is left blank/0 and flagged with a
+     * TODO so nobody reports a number that hasn't actually been verified
+     * against the underlying table's field definitions — for a government
+     * health report, an approximate guess is worse than an empty cell.
+     */
+    public function m1AllProgramsDownload(Request $request)
+    {
+        $year     = $request->input('year', date('Y'));
+        $month    = (int) $request->input('month', date('n'));
+        $barangay = $request->input('barangay', 'All');
+
+        $monthNames = [
+            1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+            5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+            9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December',
+        ];
+        $monthName = $monthNames[$month] ?? (string) $month;
+
+        /*
+        |--------------------------------------------------------------------------
+        | 1. LOAD THE OFFICIAL M1 TEMPLATE
+        |--------------------------------------------------------------------------
+        */
+        $templatePath = storage_path('app/templates/M1_All_Programs.xlsx');
+        if (!file_exists($templatePath)) {
+            abort(404, 'M1 All Programs template not found at storage/app/templates/M1_All_Programs.xlsx. Please upload the template first.');
+        }
+
+        $spreadsheet = IOFactory::load($templatePath);
+        $sheet       = $spreadsheet->getActiveSheet();
+
+        // Small helper: only writes a value when it's not null, so we don't
+        // stomp over the template's own placeholder text/formatting with 0s
+        // for indicators we haven't wired up a query for yet.
+        $set = function (string $cell, $value) use ($sheet) {
+            if ($value !== null) {
+                $sheet->setCellValue($cell, $value);
+            }
+        };
+
+        /*
+        |--------------------------------------------------------------------------
+        | 2. FACILITY / REPORT HEADER (rows 1-6)
+        |--------------------------------------------------------------------------
+        */
+        $set('D1', "FHSIS REPORT for the Month {$monthName} Year {$year}");
+        $set('D2', "Name of Barangay {$barangay}");
+        $set('D3', $request->input('bhs_name', ''));
+        $set('D4', $request->input('municipality', ''));
+        $set('D5', $request->input('province', ''));
+
+        $profileQuery = DB::table('household_profiles');
+        if ($barangay !== 'All') {
+            $profileQuery->where('barangay', $barangay);
+        }
+        $set('D6', (clone $profileQuery)->count());
+
+        // Reusable barangay scoping, same pattern as generalReport()
+        $withBarangay = function ($query, string $table, string $fk) use ($barangay) {
+            if ($barangay !== 'All') {
+                $query->join('household_profiles', "{$table}.{$fk}", '=', 'household_profiles.id')
+                      ->where('household_profiles.barangay', $barangay);
+            }
+            return $query;
+        };
+
+        try {
+            /*
+            |----------------------------------------------------------------
+            | SECTION A. FAMILY PLANNING (rows 9-34)
+            | Column layout confirmed from template: E=Current Users(Begin)
+            | Total, I=New Acceptors(Prev Month) Total, M=Other Acceptors
+            | Total, Q=Drop-outs Total, U=Current Users(End) Total,
+            | Y=New Acceptors(Present Month) Total.
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('family_planning_records')) {
+                $q = $withBarangay(
+                    DB::table('family_planning_records')->whereYear('family_planning_records.created_at', $year)
+                        ->whereMonth('family_planning_records.created_at', $month),
+                    'family_planning_records', 'profileId'
+                );
+                $set('U34', (clone $q)->count());                                                     // Total Current Users (End of Month)
+                $set('Y34', (clone $q)->where('family_planning_records.clientType', 'New Acceptor')->count()); // New Acceptors (Present Month)
+                // TODO: rows 16-33 (per-method breakdown: BTL, NSV, Condom, Pills, etc.)
+                // require a per-method field on family_planning_records — wire up once confirmed.
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION B. MATERNAL CARE AND SERVICES (rows 38-80)
+            | "TOTAL" column for the left-hand indicator block = E.
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('maternal_care_records')) {
+                $q = $withBarangay(
+                    DB::table('maternal_care_records')->whereYear('maternal_care_records.created_at', $year)
+                        ->whereMonth('maternal_care_records.created_at', $month),
+                    'maternal_care_records', 'profileId'
+                );
+                // Row 47: "pregnant women assessed for nutritional status" / Row 48: Normal BMI
+                $set('E47', (clone $q)->count());
+                $set('E48', (clone $q)->where('maternal_care_records.bmiStatus', 'Normal')->count());
+                // TODO: 8ANC completion (rows 39-46), Td vaccination status (51-53),
+                // deliveries/newborn care (58-69), and postpartum PNC (73-80) each need
+                // their own dedicated boolean/date fields — confirm against the model
+                // before wiring these up.
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION C. CHILD CARE AND SERVICES (rows 84-136)
+            | "Total" column for Male/Female/Total triples = D.
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('child_immunization_records')) {
+                $q = DB::table('child_immunization_records')
+                    ->whereYear('child_immunization_records.created_at', $year)
+                    ->whereMonth('child_immunization_records.created_at', $month);
+                if ($barangay !== 'All') {
+                    $q->join('household_profiles', 'child_immunization_records.profileId', '=', 'household_profiles.id')
+                      ->where('household_profiles.barangay', $barangay);
+                }
+                // TODO: map FIC/CIC counts and each specific antigen (BCG, HepB, DPT-HiB-HepB
+                // 1-3, OPV, IPV) to rows 86-103 once the exact column/flag names on
+                // child_immunization_records are confirmed.
+            }
+            if (Schema::hasTable('child_nutrition')) {
+                // TODO: rows 114-126 (breastfeeding initiation, Vitamin A, MAM/SAM, SFP outcomes)
+            }
+            if (Schema::hasTable('child_management_sick')) {
+                // TODO: rows 130-136 (sick infant Vitamin A, acute diarrhea/ORS-Zinc)
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION D. ORAL HEALTH CARE SERVICES (rows 140-161)
+            | "Total" column = D (or R for the right-hand block).
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('oral_health_records')) {
+                // TODO: map by age bracket (rows 141-156) and pregnant women (159-161)
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION E. NON-COMMUNICABLE DISEASES (rows 165-240)
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('philpen_risk_assessments')) {
+                // TODO: lifestyle risk (165-176), hypertension (177-191)
+            }
+            if (Schema::hasTable('eyes_screening_records')) {
+                // TODO: rows 195-215
+            }
+            if (Schema::hasTable('mental_health_records')) {
+                // TODO: row 220
+            }
+            if (Schema::hasTable('cervical_cancer_records')) {
+                // TODO: rows 228-240
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION F. ENVIRONMENTAL HEALTH AND SANITATION (rows 249-254)
+            | "Total" column = B.
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('environmental_health_records')) {
+                $q = DB::table('environmental_health_records')
+                    ->whereYear('created_at', $year)->whereMonth('created_at', $month);
+                if ($barangay !== 'All') {
+                    $q->join('household_profiles', 'environmental_health_records.profileId', '=', 'household_profiles.id')
+                      ->where('household_profiles.barangay', $barangay);
+                }
+                $set('B250', (clone $q)->where('safely_managed_water', true)->count());     // 1. HH with access to improved water supply
+                $set('B254', (clone $q)->where('safely_managed_sanitation', true)->count()); // 2. HH using safely managed drinking water
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION G. INFECTIOUS DISEASE PREVENTION AND CONTROL (rows 258-388)
+            |----------------------------------------------------------------
+            */
+            if (Schema::hasTable('filariasis_registry')) {
+                // TODO: rows 259-276
+            }
+            if (Schema::hasTable('rabies_registry')) {
+                // TODO: row 287
+            }
+            if (Schema::hasTable('schistosomiasis_registry')) {
+                // TODO: rows 291-327
+            }
+            if (Schema::hasTable('soil_transmitted_helminthiasis_registry')) {
+                // TODO: rows 331-354
+            }
+            if (Schema::hasTable('leprosy_registry')) {
+                // TODO: rows 360-371
+            }
+
+            /*
+            |----------------------------------------------------------------
+            | SECTION C (VITAL STATISTICS) (rows 389+)
+            |----------------------------------------------------------------
+            */
+            // TODO: mortality (392-401) and other vital events — no source
+            // table for this is present in the controller yet.
+
+        } catch (\Throwable $e) {
+            Log::error('M1 All Programs generation error: ' . $e->getMessage());
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 3. STREAM FILE
+        |--------------------------------------------------------------------------
+        */
+        $filename = "M1_All_Programs_{$monthName}_{$year}_{$barangay}.xlsx";
         $savePath = storage_path("app/{$filename}");
         (new Xlsx($spreadsheet))->save($savePath);
 

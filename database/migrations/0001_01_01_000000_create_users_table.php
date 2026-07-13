@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
@@ -21,10 +18,17 @@ return new class extends Migration
             $table->string('status')->default('Active');
             $table->string('assigned_facility')->nullable();
             
-            // Geographic location infrastructure definitions
-            $table->string('barangay')->nullable();
+            // Geographic location descriptions
+            $table->json('barangay')->nullable(); 
             $table->string('municipality')->nullable();
             $table->string('province')->nullable(); 
+            $table->string('region')->nullable(); 
+            
+            // Geographic location codes
+            $table->json('barangay_codes')->nullable(); 
+            $table->string('municipality_code')->nullable();
+            $table->string('province_code')->nullable(); 
+            $table->string('region_code')->nullable(); 
             
             $table->rememberToken();
             $table->timestamps();
@@ -46,9 +50,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('users');

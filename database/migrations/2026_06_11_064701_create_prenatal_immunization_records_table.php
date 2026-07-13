@@ -19,6 +19,8 @@ return new class extends Migration
         $table->string('td3Date')->nullable();
         $table->string('td4Date')->nullable();
         $table->string('td5Date')->nullable();
+        $table->boolean('isSynced')->default(false);
+        $table->unsignedBigInteger('updatedAt')->nullable();
         $table->timestamps();
     });
     }

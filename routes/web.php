@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\FhsisReportController;
 use App\Http\Controllers\PhoController;
+use App\Http\Controllers\PublicNurseController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 
 // Clean root landing page redirection
 Route::get('/', function () {
@@ -22,7 +24,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Render Consolidated Regional Public Health Analytics View
     Route::get('/fhsis/reports', [FhsisReportController::class, 'generalReport'])->name('fhsis.reports');
     
-    // File Streaming Download Interface (CSV Generation Payload)
+    // File Streaming Download Interface
     Route::get('/fhsis/reports/export', [FhsisReportController::class, 'export'])->name('fhsis.reports.export');
     Route::get('/fhsis/reports/export-fp', [FhsisReportController::class, 'familyPlanningDownload'])->name('fhsis.reports.familyPlanningDownload');
     Route::get('/fhsis/reports/export-mc', [FhsisReportController::class, 'maternalCareDownload'])->name('fhsis.reports.maternalCareDownload');
@@ -42,6 +44,19 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/reports/export-cervical', [FhsisReportController::class, 'cervicalCancerScreeningDownload'])->name('fhsis.reports.cervicalCancerScreeningDownload');
     Route::get('/fhsis/reports/export-geriatric', [FhsisReportController::class, 'geriatricScreeningDownload'])->name('fhsis.reports.geriatricScreeningDownload');
     
+    // Location API Definitions
+    Route::get('/api/locations/regions', function () {
+        return DB::table('regions')->orderBy('regDesc')->get();
+    });
+    Route::get('/api/locations/provinces/{regCode}', function ($regCode) {
+        return DB::table('provinces')->where('regCode', $regCode)->orderBy('provDesc')->get();
+    });
+    Route::get('/api/locations/municipalities/{provCode}', function ($provCode) {
+        return DB::table('municipalities')->where('provCode', $provCode)->orderBy('citymunDesc')->get();
+    });
+    Route::get('/api/locations/barangays/{munCode}', function ($munCode) {
+        return DB::table('barangays')->where('citymunCode', $munCode)->orderBy('brgyDesc')->get();
+    });
     
     // Fallback default routing context handler
     Route::get('dashboard', function () {
@@ -55,7 +70,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/fhsis/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     
     Route::get('/fhsis/pho', [PhoController::class, 'pho'])->name('fhsis.pho');
-    Route::get('/fhsis/public-nurse', [PhoController::class, 'nurse'])->name('fhsis.nurse');
+    Route::get('/fhsis/public-nurse', [PublicNurseController::class, 'publicNurse'])->name('fhsis.publicNurse');
+    Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');
+    Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
 });
 
 require __DIR__.'/settings.php';

@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('oral_health_care', function (Blueprint $table) {
             $table->id();
-            $table->integer('profile_id')->nullable()->index();
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             
             $table->string('date_of_visit')->nullable();
             $table->string('family_serial')->nullable();
@@ -52,6 +53,8 @@ return new class extends Migration
             $table->string('service_location2nd')->nullable();
             
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

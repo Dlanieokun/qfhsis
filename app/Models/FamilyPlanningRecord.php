@@ -13,7 +13,7 @@ class FamilyPlanningRecord extends Model
 
     protected $fillable = [
         'profileId', 'registrationDate', 'familySerialNumber', 'address',
-        'age', 'birthDate', 'ageGroupCategory', 'clientType', 'commoditySource',
+        'age', 'birthDate', 'ageGroupCategory', 'clientType', 'commoditySource', 'methodUsed',
         'previousMethod'
     ];
 

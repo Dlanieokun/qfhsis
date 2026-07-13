@@ -49,6 +49,8 @@ return new class extends Migration
             $table->string('syphilisConfirmatoryDate')->nullable();
             $table->string('syphilisConfirmatoryResult')->nullable();
             $table->string('syphilisTreatment')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

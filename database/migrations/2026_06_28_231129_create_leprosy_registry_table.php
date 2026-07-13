@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('leprosy_registry', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
             $table->string('date_of_registration')->nullable();
             $table->string('name')->nullable();
             $table->string('address')->nullable();
@@ -41,6 +43,8 @@ return new class extends Migration
             
             $table->string('grade2_disability')->nullable();
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

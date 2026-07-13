@@ -12,7 +12,8 @@ return new class extends Migration
             $table->id();
             
             // Foreign link
-            $table->bigInteger('profileId')->default(-1);
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
 
             // Demographics
             $table->string('registrationDate')->nullable();
@@ -89,6 +90,8 @@ return new class extends Migration
             $table->boolean('cicOpv3')->default(false);
             $table->boolean('cicMmr2')->default(false);
             $table->string('cicDate')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->text('remarks')->nullable();
             

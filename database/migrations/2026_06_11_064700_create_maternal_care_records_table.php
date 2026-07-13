@@ -13,6 +13,7 @@ return new class extends Migration
         Schema::create('maternal_care_records', function (Blueprint $table) {
             $table->id();
             $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('registrationDate')->nullable();
             $table->string('familySerialNumber')->nullable();
             $table->string('patientName')->nullable();
@@ -27,6 +28,8 @@ return new class extends Migration
             $table->decimal('heightCm', 5, 2)->nullable(); 
             $table->string('bmiValue')->nullable();
             $table->string('bmiStatus')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

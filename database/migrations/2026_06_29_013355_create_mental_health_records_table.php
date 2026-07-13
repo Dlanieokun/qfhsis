@@ -14,6 +14,8 @@ return new class extends Migration
         Schema::create('mental_health_records', function (Blueprint $table) {
             // Room: @PrimaryKey(autoGenerate = true) int recordNo
             $table->id('recordNo'); 
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
             
             $table->string('dateOfAssessment')->nullable(); // mm/dd/yy
             $table->string('familySerialNumber')->nullable();
@@ -26,6 +28,8 @@ return new class extends Migration
             
             // Room: boolean screenedMhgap -> 1 for true, 0 for false
             $table->boolean('screenedMhgap')->default(false); 
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             
             $table->timestamps();
         });

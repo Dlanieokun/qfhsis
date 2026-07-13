@@ -11,7 +11,8 @@ return new class extends Migration
         Schema::create('child_immunization_school_records', function (Blueprint $table) {
             $table->id();
             
-            $table->bigInteger('profileId')->default(-1);
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
 
             // Demographics Tracking
             $table->string('registrationDate')->nullable();
@@ -37,6 +38,8 @@ return new class extends Migration
             $table->string('hpvCompletedDate')->nullable();
 
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

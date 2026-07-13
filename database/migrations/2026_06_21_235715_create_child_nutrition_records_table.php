@@ -11,7 +11,8 @@ return new class extends Migration
         Schema::create('child_nutrition_records', function (Blueprint $table) {
             $table->id();
             
-            $table->bigInteger('profileId')->default(-1); // Match initialization
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('userId')->constrained('users')->onDelete('cascade');
 
             // Section 1: Client Identification
             $table->string('dateRegistration')->nullable();
@@ -82,6 +83,8 @@ return new class extends Migration
 
             // Section 9: Remarks
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
         });

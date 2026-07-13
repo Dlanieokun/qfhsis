@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('filariasis_registry_table', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
             $table->string('date_of_registration')->nullable();
             $table->string('family_serial_number')->nullable();
             $table->string('name')->nullable();
@@ -40,6 +42,8 @@ return new class extends Migration
             $table->string('dec_date_given')->nullable();
             $table->string('ivermectin_date_given')->nullable();
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
     }

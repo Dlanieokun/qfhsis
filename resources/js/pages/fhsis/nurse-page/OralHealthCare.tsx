@@ -85,40 +85,7 @@ const ageGroupLabels: Record<string, string> = {
     H: 'H — Pregnant 20-49',
 };
 
-const sampleClients: OralHealthClient[] = [
-    {
-        id: 'oh-1',
-        dateOfVisit: '02/03/26',
-        familySerialNumber: 'FSN-0110',
-        fullName: 'Ramos, Josefina T.',
-        address: 'Purok 5, Brgy. Mabini',
-        dateOfBirth: '05/10/2000',
-        ageMonths: '',
-        ageYears: 25,
-        sex: 'F',
-        ageGroup: 'D',
-        infantOralScreening: false,
-        infantRiskAssessment: false,
-        infantOhi: false,
-        infantCounseling: false,
-        infantFluorideVarnish: false,
-        infantRpocComplete: false,
-        oralScreening1st: '02/03/26',
-        oralScreening2nd: '',
-        riskAssessment1st: '02/03/26',
-        riskAssessment2nd: '',
-        oralProphylaxis1st: '',
-        oralProphylaxis2nd: '',
-        fluorideVarnish1st: '',
-        fluorideVarnish2nd: '',
-        counseling1st: '02/03/26',
-        counseling2nd: '',
-        rpocVisit1Complete: true,
-        rpocVisit2Complete: false,
-        serviceLocation: 'A',
-        remarks: 'Advised to return for 2nd visit',
-    },
-];
+const sampleClients: OralHealthClient[] = [];
 
 const inputClass =
     'rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500';

@@ -28,6 +28,11 @@ class User extends Authenticatable
         'barangay',
         'municipality',
         'province',
+        'region',
+        'barangay_codes',
+        'municipality_code',
+        'province_code',
+        'region_code'
     ];
 
     /**
@@ -50,6 +55,8 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'barangay' => 'array',
+            'barangay_codes' => 'array',
         ];
     }
 }

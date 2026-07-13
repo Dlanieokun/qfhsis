@@ -21,6 +21,8 @@ return new class extends Migration
             $table->string('dropOutDate')->nullable();
             $table->string('reasonCode')->nullable();
             $table->text('remarks')->nullable();
+            $table->boolean('isSynced')->default(false);
+            $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
 

@@ -29,6 +29,8 @@ return new class extends Migration
         $table->string('dateReferred')->nullable();
         $table->string('classificationStatus')->nullable();
         $table->string('classificationDate')->nullable();
+        $table->boolean('isSynced')->default(false);
+        $table->unsignedBigInteger('updatedAt')->nullable();
         $table->timestamps();
     });
     }
