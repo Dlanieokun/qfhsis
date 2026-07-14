@@ -29,6 +29,7 @@ return new class extends Migration
             // Room: boolean screenedMhgap -> 1 for true, 0 for false
             $table->boolean('screenedMhgap')->default(false); 
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
             
             $table->timestamps();

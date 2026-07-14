@@ -58,6 +58,7 @@ return new class extends Migration
             $table->string('mda_date_given')->nullable();
             $table->text('remarks')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });

@@ -91,6 +91,7 @@ return new class extends Migration
             $table->boolean('cicMmr2')->default(false);
             $table->string('cicDate')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->text('remarks')->nullable();

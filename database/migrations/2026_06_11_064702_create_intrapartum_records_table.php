@@ -25,6 +25,7 @@ return new class extends Migration
         $table->string('deliveryTime')->nullable();
         $table->text('remarks')->nullable();
         $table->boolean('isSynced')->default(false);
+        $table->boolean('newInsert')->default(true);
         $table->unsignedBigInteger('updatedAt')->nullable();
         $table->timestamps();
     });

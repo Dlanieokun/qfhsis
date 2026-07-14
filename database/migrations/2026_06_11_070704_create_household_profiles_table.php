@@ -38,6 +38,7 @@ return new class extends Migration
             $table->string('education')->nullable();
             $table->string('religion')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });
@@ -46,7 +47,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('household_profiles', function (Blueprint $table) {
-            $table->dropColumn(['isSynced', 'updatedAt']);
+            $table->dropColumn(['isSynced', 'newInsert', 'updatedAt']);
         });
     }
 };

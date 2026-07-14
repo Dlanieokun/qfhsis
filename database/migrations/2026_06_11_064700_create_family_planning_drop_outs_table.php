@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('reasonCode')->nullable();
             $table->text('remarks')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });

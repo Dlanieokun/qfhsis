@@ -50,6 +50,7 @@ return new class extends Migration
             $table->string('syphilisConfirmatoryResult')->nullable();
             $table->string('syphilisTreatment')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();

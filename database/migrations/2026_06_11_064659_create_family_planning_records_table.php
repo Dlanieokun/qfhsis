@@ -26,6 +26,7 @@ return new class extends Migration
             $table->string('commoditySource')->nullable();
             $table->string('previousMethod')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
             $table->timestamps();
         });

@@ -61,6 +61,7 @@ return new class extends Migration
             $table->boolean('completed_cc')->default(false);
             $table->string('cc_completed_date')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
 
             // Standard Laravel timestamp tracking blueprint mapping

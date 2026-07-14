@@ -46,6 +46,7 @@ return new class extends Migration
             $table->tinyInteger('safelyManagedDrinkingWater')->default(0);     // 1 = Yes, 0 = No
             $table->text('remarks')->nullable();
             $table->boolean('isSynced')->default(false);
+            $table->boolean('newInsert')->default(true);
             $table->unsignedBigInteger('updatedAt')->nullable();
 
             $table->timestamps();
