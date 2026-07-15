@@ -48,11 +48,11 @@ class PhoReportController extends Controller
         $methods = array_unique(array_values($methodDB));
 
         $newAcceptorsPrevMonth = $otherAcceptorsPresent = $newAcceptorsPresent =
-        $currentUsersBOM = $currentUsersEOM = $dropOutsPresent = [];
+        $currentUsersBOM = $currentUsersEOM = $otherReport = $dropOutsPrev = $dropOutsPresent = [];
 
         foreach ($methods as $m) {
             $newAcceptorsPrevMonth[$m] = $otherAcceptorsPresent[$m] = $newAcceptorsPresent[$m] =
-            $currentUsersBOM[$m] = $currentUsersEOM[$m] = $dropOutsPresent[$m] = $empty;
+            $currentUsersBOM[$m] = $currentUsersEOM[$m] = $otherReport[$m] = $dropOutsPrev[$m] = $dropOutsPresent[$m] = $empty;
         }
 
         // 2. Time Period Parameters
@@ -83,7 +83,7 @@ class PhoReportController extends Controller
             // Earliest drop-out on/before the end of the selected month
             $dropoutAtEom = $item->dropOuts
                 ->map(fn ($d) => Carbon::parse($d->dropOutDate))
-                ->filter(fn ($d) => $d->lessThanOrEqualTo($endOfSelected))
+                ->filter(fn ($d) => $d->isSameMonth($selectedMonth))
                 ->sort()
                 ->first();
             $isDropoutEom = $dropoutAtEom !== null;
@@ -101,6 +101,12 @@ class PhoReportController extends Controller
                 $dropOutsPresent[$method]['total']++;
             }
 
+            if ($isDropoutBom) {
+                $dropOutsPrev[$method][$age]++;
+                $dropOutsPrev[$method]['total']++;
+            }
+            
+
             // Current User - End of Month: registered on/before EOM and not dropped out by EOM
             if ($regDate->lessThanOrEqualTo($endOfSelected) && !$isDropoutEom) {
                 $currentUsersEOM[$method][$age]++;
@@ -115,33 +121,41 @@ class PhoReportController extends Controller
 
             // Logic for New/Other Acceptors
             if ($regDate->isSameMonth($selectedMonth)) {
-                $newAcceptorsPresent[$method][$age]++;
-                $newAcceptorsPresent[$method]['total']++;
+                if ($item->clientType === 'NA = New Acceptors'){
+                    $newAcceptorsPresent[$method][$age]++;
+                    $newAcceptorsPresent[$method]['total']++;
+                } else {
+                    $otherAcceptorsPresent[$method][$age]++;
+                    $otherAcceptorsPresent[$method]['total']++;
+                }
             } elseif ($regDate->isSameMonth($previousMonth)) {
-                $newAcceptorsPrevMonth[$method][$age]++;
-                $newAcceptorsPrevMonth[$method]['total']++;
+                if ($item->clientType === 'NA = New Acceptors'){
+                    $newAcceptorsPrevMonth[$method][$age]++;
+                    $newAcceptorsPrevMonth[$method]['total']++;
+                } else {
+                    $otherReport[$method][$age]++;
+                    $otherReport[$method]['total']++;
+                }
             } elseif ($regDate->lessThan($previousMonth->copy()->startOfMonth())) {
-                $otherAcceptorsPresent[$method][$age]++;
-                $otherAcceptorsPresent[$method]['total']++;
+                $otherReport[$method][$age]++;
+                $otherReport[$method]['total']++;
             }
         }
 
         // --- Reconcile BOM/EOM current users from the acceptor/drop-out ledgers ---
         foreach ($methods as $method) {
             foreach (['10-14', '15-19', '20-49'] as $age) {
-                // BOM: Previous + Other Acceptors (NO present-month acceptors)
                 $currentUsersBOM[$method][$age] = max(
                     0,
-                    $newAcceptorsPrevMonth[$method][$age]
-                    + $otherAcceptorsPresent[$method][$age]
+                    $otherReport[$method][$age]
+                    - $dropOutsPrev[$method][$age]
                 );
 
-                // EOM: Previous + Other + Present Acceptors - Present Dropouts
                 $currentUsersEOM[$method][$age] = max(
                     0,
-                    $newAcceptorsPrevMonth[$method][$age]
+                    $currentUsersBOM[$method][$age]
                     + $otherAcceptorsPresent[$method][$age]
-                    + $newAcceptorsPresent[$method][$age]
+                    + $newAcceptorsPrevMonth[$method][$age]
                     - $dropOutsPresent[$method][$age]
                 );
             }
@@ -165,6 +179,8 @@ class PhoReportController extends Controller
             $demandSatisfied['20-49'] += $counts['20-49'];
             $demandSatisfied['total'] += $counts['total'];
         }
+
+        // return response()->json($familyData);
 
         return response()->json([
             'status' => 'success',
