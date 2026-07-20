@@ -10,27 +10,27 @@ import AppLogo from './app-logo';
 const mainNavItems: NavItem[] = [
     {
         title: 'Dashboard',
-        url: '/dashboard',
+        url: '/fhsis-system/public/dashboard',
         icon: LayoutGrid,
     },
     {
         title: 'PHO Forms',           
-        url: '/fhsis/pho',              
+        url: '/fhsis-system/public/fhsis/pho',              
         icon: ClipboardList,            
     },
     {
         title: 'Nurse Submittion',           
-        url: '/fhsis/public-nurse',              
+        url: '/fhsis-system/public/fhsis/public-nurse',              
         icon: HeartPulseIcon,            
     },
     {
         title: 'General Report',
-        url: '/fhsis/reports',
+        url: '/fhsis-system/public/fhsis/reports',
         icon: FileText,
     },
     {
         title: 'User Management',
-        url: '/fhsis/users',
+        url: '/fhsis-system/public/fhsis/users',
         icon: Users,
     },
 ];

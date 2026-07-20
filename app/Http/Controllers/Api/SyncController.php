@@ -133,7 +133,7 @@ class SyncController extends Controller
                     continue;
                 }
 
-                DB::transaction(function () use ($dbTableName, $records, &$skippedRecords) {
+                DB::transaction(function () use ($dbTableName, $records, &$skippedRecords, &$request) {
                     foreach ($records as $record) {
 
                         // GUARD: skip anything that isn't a proper associative record
@@ -303,6 +303,7 @@ class SyncController extends Controller
                         $pkValue = $record[$jsonPkName];
 
                         if ($isNewInsert) {
+<<<<<<< HEAD
                             // Brand-new record from Android — INSERT it.
                             try {
                                 DB::table($dbTableName)->insert($record);
@@ -317,6 +318,78 @@ class SyncController extends Controller
                                         ->update($record);
                                 } else {
                                     throw $e;
+=======
+                            if ($dbTableName === 'household_profiles') {
+                                // The Android app assigns its own local auto-increment ID.
+                                // We must NOT forward that ID to the server — instead we
+                                // strip it and let MySQL generate an authoritative one.
+                                // We then rewrite every occurrence of the old Android-local
+                                // ID in $request so that all child tables processed later
+                                // in the same push (familyPlanningRecords, maternalCareRecords,
+                                // etc.) automatically carry the correct server profile ID.
+                                $syncId = $pkValue;                 // Android-local ID
+                                unset($record[$jsonPkName]);        // Drop it; server will assign
+
+                                $newId = DB::table($dbTableName)->insertGetId($record);
+
+                                // Walk every scalar value in the full request payload and
+                                // swap the Android-local profile ID for the server-assigned one.
+                                // Both int and string representations are matched to handle
+                                // JSON decoding inconsistencies across Android API versions.
+                                $allData = $request->all();
+                                array_walk_recursive($allData, function (&$value) use ($syncId, $newId) {
+                                    if ($value === $syncId || $value === (string) $syncId) {
+                                        $value = $newId;
+                                    }
+                                });
+                                $request->replace($allData);
+
+                            } else {
+                                // For every other table, the Android-generated PK is also
+                                // local-only and must not dictate the server's row ID.
+                                // Dropping both the JSON key and the DB column name covers
+                                // tables whose key name differs between Android JSON and the
+                                // DB schema (e.g. geriatric_screening_records: recordNo / record_no).
+                                unset($record[$jsonPkName], $record[$pkName]);
+
+                                try {
+                                    DB::table($dbTableName)->insert($record);
+                                } catch (\Illuminate\Database\QueryException $e) {
+                                    // Without a specified PK, a 23000 violation can only come
+                                    // from a non-PK unique constraint — log and skip the row
+                                    // rather than aborting the whole sync batch.
+                                    if ($e->getCode() === '23000') {
+                                        Log::warning("Sync push: unique constraint violation on {$dbTableName}", [
+                                            'error' => $e->getMessage(),
+                                        ]);
+                                    } else {
+                                        throw $e;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Edited record — upsert: update if the row already
+                            // exists on the server, insert if it somehow doesn't.
+                            $recordExists = DB::table($dbTableName)
+                                ->where($pkName, $pkValue)
+                                ->exists();
+
+                            if ($recordExists) {
+                                DB::table($dbTableName)
+                                    ->where($pkName, $pkValue)
+                                    ->update($record);
+                            } else {
+                                try {
+                                    DB::table($dbTableName)->insert($record);
+                                } catch (\Illuminate\Database\QueryException $e) {
+                                    if ($e->getCode() === '23000') {
+                                        DB::table($dbTableName)
+                                            ->where($pkName, $pkValue)
+                                            ->update($record);
+                                    } else {
+                                        throw $e;
+                                    }
+>>>>>>> f6cedd7 (latest update)
                                 }
                             }
                         } else {
@@ -527,6 +600,21 @@ class SyncController extends Controller
         // other boolean columns below.
         if (array_key_exists('isSynced', $record)) {
             $record['isSynced'] = (bool) $record['isSynced'];
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // FIX: newInsert has the exact same problem as isSynced above.
+        // Every Android entity declares `newInsert` as a Java primitive
+        // `boolean` (e.g. HouseholdProfile.newInsert). MySQL stores it
+        // as TINYINT(1); DB::table() returns it as a PHP int (0 or 1);
+        // json_encode() serialises that as a JSON number; Gson then
+        // throws:
+        //   JsonSyntaxException: IllegalStateException: Expected a
+        //   boolean but was NUMBER at path $.data.householdProfiles[0].newInsert
+        // Cast it here, generically for every table, so the pull
+        // response always sends true/false rather than 0/1.
+        if (array_key_exists('newInsert', $record)) {
+            $record['newInsert'] = (bool) $record['newInsert'];
         }
 
         // ──────────────────────────────────────────────────────────
