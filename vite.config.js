@@ -1,11 +1,10 @@
 import react from '@vitejs/plugin-react';
 import laravel from 'laravel-vite-plugin';
-import {
-    defineConfig
-} from 'vite';
+import { defineConfig } from 'vite';
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+    base: '/fhsis-system/public/build/',
     plugins: [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.tsx'],

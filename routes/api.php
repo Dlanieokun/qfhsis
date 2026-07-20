@@ -46,16 +46,15 @@ Route::get('/non-communicable-disease/report', [PhoReportController::class, 'non
 Route::get('/environmental-health/report', [PhoReportController::class, 'environmentalHealth']);
 Route::get('/infectious-disease/report', [PhoReportController::class, 'infectiousDisease']);
 
-    Route::get('/sync/pull', [SyncController::class, 'syncToAndroid']);
-
-// Guarded backend metrics domain profile routes
+// Guarded backend routes — require a valid Sanctum bearer token.
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [UsersController::class, 'logout']);
-    
+
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
 
-    // Pull now requires a valid bearer token so results can be scoped
-    // to the requesting user's assigned barangay/municipality/province/region.
+    // Pull is scoped server-side to the requesting user's assigned
+    // barangay / municipality / province / region catchment area.
+    Route::get('/sync/pull', [SyncController::class, 'syncToAndroid']);
 });
