@@ -303,22 +303,6 @@ class SyncController extends Controller
                         $pkValue = $record[$jsonPkName];
 
                         if ($isNewInsert) {
-<<<<<<< HEAD
-                            // Brand-new record from Android — INSERT it.
-                            try {
-                                DB::table($dbTableName)->insert($record);
-                            } catch (\Illuminate\Database\QueryException $e) {
-                                // 23000 = integrity constraint violation (duplicate PK).
-                                // Another device's concurrent push already inserted
-                                // this record — treat the collision as an update so
-                                // the latest data wins without aborting the sync.
-                                if ($e->getCode() === '23000') {
-                                    DB::table($dbTableName)
-                                        ->where($pkName, $pkValue)
-                                        ->update($record);
-                                } else {
-                                    throw $e;
-=======
                             if ($dbTableName === 'household_profiles') {
                                 // The Android app assigns its own local auto-increment ID.
                                 // We must NOT forward that ID to the server — instead we
@@ -389,7 +373,6 @@ class SyncController extends Controller
                                     } else {
                                         throw $e;
                                     }
->>>>>>> f6cedd7 (latest update)
                                 }
                             }
                         } else {
