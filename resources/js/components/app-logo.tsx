@@ -5,7 +5,7 @@ export default function AppLogo() {
         <>
             <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-md">
                 <img
-                    src="/leyte_provl_logo.jpg"
+                    src="/fhsis-system/public/leyte_provl_logo.jpg"
                     alt="App Logo"
                     className="size-5 object-contain"
                 />
