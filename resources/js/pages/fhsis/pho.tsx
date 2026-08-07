@@ -107,13 +107,13 @@ interface PhoPageProps {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'FHSIS', href: '/fhsis/dashboard' },
-    { title: 'PHO Form M1', href: '/fhsis/pho' },
+    { title: 'FHSIS', href: '/fhsis-system/public/fhsis/dashboard' },
+    { title: 'PHO Form M1', href: '/fhsis-system/public/fhsis/pho' },
 ];
 
 export default function PhoPage({
-    familyPlanning, maternalCare, childCare,
-    oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
+    // familyPlanning, maternalCare, childCare,
+    // oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
     regions = [], provinces = [], municipalities = [], barangays = []
 }: PhoPageProps) {
     const [activeTab, setActiveTab] = useState<'m1' | 'q1' | 'm2' | 'a1'>('m1');
@@ -170,13 +170,13 @@ export default function PhoPage({
             <div className="mt-6 max-w-7xl mx-auto px-6 pb-12">
                 {activeTab === 'm1' && (
                     <M1AllPrograms
-                        familyPlanning={familyPlanning}
-                        maternalCare={maternalCare}
-                        childCare={childCare}
-                        oralHealth={oralHealth}
-                        nonCommunicableDisease={nonCommunicableDisease}
-                        environmentalHealth={environmentalHealth}
-                        infectiousDisease={infectiousDisease}
+                        // familyPlanning={familyPlanning}
+                        // maternalCare={maternalCare}
+                        // childCare={childCare}
+                        // oralHealth={oralHealth}
+                        // nonCommunicableDisease={nonCommunicableDisease}
+                        // environmentalHealth={environmentalHealth}
+                        // infectiousDisease={infectiousDisease}
                         regions={regions}
                         provinces={provinces}
                         municipalities={municipalities}

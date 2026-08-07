@@ -229,6 +229,7 @@ class PhoReportController extends Controller
             'gdmScreened', 'gdmDiagnosed',
             'dewormed',
             'bpMeasured', 'highBpOrDanger', 'referred',
+            'anc8A1', 'anc8A2', 'anc81B', 'anc8B1', 'anc8B1', 'anc8B2', 'anc8B3'
         ];
         $prenatal = array_fill_keys($prenatalKeys, null);
         foreach ($prenatalKeys as $k) {
@@ -248,7 +249,7 @@ class PhoReportController extends Controller
             $intrapartum[$k] = $sexBracketEmpty;
         }
 
-        $postpartumKeys = ['pnc4Completed', 'ifaCompleted', 'vitACompleted', 'bpMeasured', 'highBpOrDanger', 'referred'];
+        $postpartumKeys = ['pnc4Completed', 'ifaCompleted', 'vitACompleted', 'bpMeasured', 'highBpOrDanger', 'referred', 'pnc4A1', 'pnc4A2', 'pnc41B', 'pnc4B1', 'pnc4B2', 'pnc4B3'];
         $postpartum = [];
         foreach ($postpartumKeys as $k) {
             $postpartum[$k] = $ageBracketEmpty;
@@ -267,18 +268,20 @@ class PhoReportController extends Controller
             ->whereHas('householdProfile', function ($q) use ($location) {
                 $this->applyHouseholdLocationFilter($q, $location);
             })
-            ->get()
-            ->filter(function ($record) use ($startOfSelected, $endOfSelected) {
-                if (empty($record->registrationDate)) {
-                    return false;
-                }
-                try {
-                    return Carbon::parse($record->registrationDate)->between($startOfSelected, $endOfSelected);
-                } catch (\Exception $e) {
-                    return false;
-                }
-            });
+            ->get();
+            // ->filter(function ($record) use ($startOfSelected, $endOfSelected) {
+            //     if (empty($record->registrationDate)) {
+            //         return false;
+            //     }
+            //     try {
+            //         return Carbon::parse($record->registrationDate)->between($startOfSelected, $endOfSelected);
+            //     } catch (\Exception $e) {
+            //         return false;
+            //     }
+            // });
 
+        // return response()->json($records, 200);
+            // Log::info('Sync upload received (delta push of unsynced records).');
         foreach ($records as $record) {
             $bracket = $this->ageBracket($record->age !== null ? (int) $record->age : null);
             if (!$bracket) {
@@ -299,6 +302,7 @@ class PhoReportController extends Controller
                     $bump($prenatal, 'nutritionLow');
                 } elseif ($this->contains($record->bmiStatus, 'high') || $this->contains($record->bmiStatus, 'over') || $this->contains($record->bmiStatus, 'obese')) {
                     $bump($prenatal, 'nutritionHigh');
+                    
                 }
             }
 
@@ -321,7 +325,26 @@ class PhoReportController extends Controller
             // ── 8ANC completion + BP / danger signs / referral (prenatal_8anc_records) ──
             if ($anc = $record->prenatal8Anc) {
                 if ($this->truthy($anc->completed8Anc)) {
-                    $bump($prenatal, 'anc8Completed');
+                    if($anc->classificationStatus === "A - Resident"){
+                        $bump($prenatal, 'anc8Completed');
+                        $bump($prenatal, 'anc8A1');
+                    }
+                    if($anc->classificationStatus === "B - Trans In"){
+                        $bump($prenatal, 'anc8Completed');
+                        $bump($prenatal, 'anc8A2');
+                    }
+                    if($anc->classificationStatus === "A - Resident"){
+                        $bump($prenatal, 'anc81B');
+                        $bump($prenatal, 'anc8B1');
+                    }
+                    if($anc->classificationStatus === "B - Trans In"){
+                        $bump($prenatal, 'anc81B');
+                        $bump($prenatal, 'anc8B2');
+                    }
+                    if($anc->classificationStatus === "C - Trans Out before receiving 8ANCS"){
+                        $bump($prenatal, 'anc81B');
+                        $bump($prenatal, 'anc8B3');
+                    }
                 }
 
                 $bpTaken = false;
@@ -374,14 +397,35 @@ class PhoReportController extends Controller
                     $bump($prenatal, 'dewormed');
                 }
             }
-
+            
             // ── Postpartum Care (postpartum_records) ─────────────────────────
             if ($pnc = $record->postpartum) {
+                
                 $visitsCompleted = collect([$pnc->visit24hDate, $pnc->visit1wDate, $pnc->visit2_4wDate, $pnc->visit4_6wDate])
                     ->filter(fn ($d) => !empty($d))
                     ->count();
-                if ($visitsCompleted >= 4) {
-                    $bump($postpartum, 'pnc4Completed');
+                    
+                if ($visitsCompleted >= 4 || $pnc->visit4_6wDate !== null) {
+                    if($pnc->PostpartumClassification === 'A - Resident'){
+                        $bump($postpartum, 'pnc4Completed');
+                        $bump($postpartum, 'pnc4A1');
+                    }
+                    if($pnc->PostpartumClassification === 'B - Trans in'){
+                        $bump($postpartum, 'pnc4Completed');
+                        $bump($postpartum, 'pnc4A2');
+                    }
+                    if($pnc->PostpartumClassification === 'A - Resident'){
+                        $bump($postpartum, 'pnc41B');
+                        $bump($postpartum, 'pnc4B1');
+                    }
+                    if($pnc->PostpartumClassification === 'B - Trans in'){
+                        $bump($postpartum, 'pnc41B');
+                        $bump($postpartum, 'pnc4B2');
+                    }
+                    if($pnc->PostpartumClassification === 'C - Trans Out before completing 4PNC'){
+                        $bump($postpartum, 'pnc41B');
+                        $bump($postpartum, 'pnc4B3');
+                    }
                 }
                 if ($this->truthy($pnc->completedIfa)) {
                     $bump($postpartum, 'ifaCompleted');
@@ -1348,6 +1392,9 @@ class PhoReportController extends Controller
     {
         if ($age === null) {
             return null;
+        }
+        if ($age === 0) {
+            return '10-14';
         }
         if ($age >= 10 && $age <= 14) {
             return '10-14';
