@@ -375,6 +375,30 @@ class SyncController extends Controller
                                     }
                                 }
                             }
+                        } else {
+                            // Edited record — upsert: update if the row already
+                            // exists on the server, insert if it somehow doesn't.
+                            $recordExists = DB::table($dbTableName)
+                                ->where($pkName, $pkValue)
+                                ->exists();
+
+                            if ($recordExists) {
+                                DB::table($dbTableName)
+                                    ->where($pkName, $pkValue)
+                                    ->update($record);
+                            } else {
+                                try {
+                                    DB::table($dbTableName)->insert($record);
+                                } catch (\Illuminate\Database\QueryException $e) {
+                                    if ($e->getCode() === '23000') {
+                                        DB::table($dbTableName)
+                                            ->where($pkName, $pkValue)
+                                            ->update($record);
+                                    } else {
+                                        throw $e;
+                                    }
+                                }
+                            }
                         }
                     }
                 });

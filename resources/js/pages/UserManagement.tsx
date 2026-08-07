@@ -90,7 +90,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     });
 
     useEffect(() => {
-        axios.get('/api/locations/regions').then(res => setRegions(res.data));
+        axios.get('/fhsis-system/public/api/locations/regions').then(res => setRegions(res.data));
     }, []);
 
     const handleSearch = (e: React.FormEvent) => {
