@@ -369,7 +369,7 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
   const postpartum = maternalCare?.postpartum;
 
   const leftValueKeys: (string | undefined)[] = [
-    undefined, undefined, 'anc8Completed', undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, 'anc8Completed', 'anc8A1', 'anc8A2', 'anc81B', 'anc8B1', 'anc8B2', 'anc8B3',
     'nutritionAssessed', 'nutritionNormal', 'nutritionLow', 'nutritionHigh',
     undefined, 'td2PlusFirstPregnancy', 'td2Plus',
   ];
@@ -398,7 +398,7 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
   ];
 
   const pncLeftValueKeys: (string | undefined)[] = [
-    undefined, 'pnc4Completed', undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, 'pnc4Completed', 'pnc4A1', 'pnc4A2', 'pnc41B', 'pnc4B1', 'pnc4B2', 'pnc4B3',
   ];
   const pncRightValueKeys: (string | undefined)[] = [
     undefined, 'ifaCompleted', 'vitACompleted',
@@ -1538,7 +1538,7 @@ export default function M1AllPrograms({
     setFpLoading(true);
     setFpError(null);
     try {
-      const res = await fetch(`/api/family-planning/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/family-planning/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1556,7 +1556,7 @@ export default function M1AllPrograms({
     setMcLoading(true);
     setMcError(null);
     try {
-      const res = await fetch(`/api/maternal-care/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/maternal-care/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1574,7 +1574,7 @@ export default function M1AllPrograms({
     setCcLoading(true);
     setCcError(null);
     try {
-      const res = await fetch(`/api/child-care/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/child-care/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1592,7 +1592,7 @@ export default function M1AllPrograms({
     setOhLoading(true);
     setOhError(null);
     try {
-      const res = await fetch(`/api/oral-health/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/oral-health/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1610,7 +1610,7 @@ export default function M1AllPrograms({
     setNcdLoading(true);
     setNcdError(null);
     try {
-      const res = await fetch(`/api/non-communicable-disease/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/non-communicable-disease/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1628,7 +1628,7 @@ export default function M1AllPrograms({
     setEhLoading(true);
     setEhError(null);
     try {
-      const res = await fetch(`/api/environmental-health/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/environmental-health/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1646,7 +1646,7 @@ export default function M1AllPrograms({
     setIdLoading(true);
     setIdError(null);
     try {
-      const res = await fetch(`/api/infectious-disease/report?${buildReportQuery()}`);
+      const res = await fetch(`/fhsis-system/public/api/infectious-disease/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
