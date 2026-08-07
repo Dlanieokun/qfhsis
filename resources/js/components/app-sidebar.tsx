@@ -110,6 +110,7 @@ export default function AppSidebar() {
                 })}
             </motion.nav>
 
+
             {/* ── User footer ──────────────────────────────────────────── */}
             <motion.div 
                 initial={{ opacity: 0, y: 20 }}
@@ -141,5 +142,6 @@ export default function AppSidebar() {
                 </div>
             </motion.div>
         </motion.aside>
+        
     );
 }

@@ -28,4 +28,5 @@ export default function AppLayout({ children, breadcrumbs: _breadcrumbs }: AppLa
             </main>
         </div>
     );
+    
 }

@@ -26,4 +26,5 @@ export function AppSidebarHeader({ breadcrumbs = [] }: { breadcrumbs?: Breadcrum
             </div>
         </motion.header>
     );
+    
 }
