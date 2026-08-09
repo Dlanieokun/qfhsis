@@ -170,13 +170,6 @@ export default function PhoPage({
             <div className="mt-6 max-w-7xl mx-auto px-6 pb-12">
                 {activeTab === 'm1' && (
                     <M1AllPrograms
-                        // familyPlanning={familyPlanning}
-                        // maternalCare={maternalCare}
-                        // childCare={childCare}
-                        // oralHealth={oralHealth}
-                        // nonCommunicableDisease={nonCommunicableDisease}
-                        // environmentalHealth={environmentalHealth}
-                        // infectiousDisease={infectiousDisease}
                         regions={regions}
                         provinces={provinces}
                         municipalities={municipalities}
@@ -185,7 +178,12 @@ export default function PhoPage({
                 )}
                 {activeTab === 'q1' && (
                     <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600">
-                        Q1 All Programs Content Dashboard Component
+                        <M1AllPrograms
+                            regions={regions}
+                            provinces={provinces}
+                            municipalities={municipalities}
+                            barangays={barangays}
+                        />
                     </div>
                 )}
                 {activeTab === 'm2' && <M28PAA />}
