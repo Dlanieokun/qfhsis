@@ -56,12 +56,11 @@ class PhoReportController extends Controller
         }
 
         // 2. Time Period Parameters
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $previousMonth   = $selectedMonth->copy()->subMonth();
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
+        $previousStart   = $period['previousStart'];
+        $previousEnd     = $period['previousEnd'];
 
         // 3. Location Filter Parameters
         $location = $this->resolveLocationFilters($request);
@@ -83,7 +82,7 @@ class PhoReportController extends Controller
             // Earliest drop-out on/before the end of the selected month
             $dropoutAtEom = $item->dropOuts
                 ->map(fn ($d) => Carbon::parse($d->dropOutDate))
-                ->filter(fn ($d) => $d->isSameMonth($selectedMonth))
+                ->filter(fn ($d) => $d->between($startOfSelected, $endOfSelected))
                 ->sort()
                 ->first();
             $isDropoutEom = $dropoutAtEom !== null;
@@ -120,7 +119,7 @@ class PhoReportController extends Controller
             }
 
             // Logic for New/Other Acceptors
-            if ($regDate->isSameMonth($selectedMonth)) {
+            if ($regDate->between($startOfSelected, $endOfSelected)) {
                 if ($item->clientType === 'NA = New Acceptors'){
                     $newAcceptorsPresent[$method][$age]++;
                     $newAcceptorsPresent[$method]['total']++;
@@ -128,7 +127,7 @@ class PhoReportController extends Controller
                     $otherAcceptorsPresent[$method][$age]++;
                     $otherAcceptorsPresent[$method]['total']++;
                 }
-            } elseif ($regDate->isSameMonth($previousMonth)) {
+            } elseif ($regDate->between($previousStart, $previousEnd)) {
                 if ($item->clientType === 'NA = New Acceptors'){
                     $newAcceptorsPrevMonth[$method][$age]++;
                     $newAcceptorsPrevMonth[$method]['total']++;
@@ -136,7 +135,7 @@ class PhoReportController extends Controller
                     $otherReport[$method][$age]++;
                     $otherReport[$method]['total']++;
                 }
-            } elseif ($regDate->lessThan($previousMonth->copy()->startOfMonth())) {
+            } elseif ($regDate->lessThan($previousStart)) {
                 $otherReport[$method][$age]++;
                 $otherReport[$method]['total']++;
             }
@@ -184,7 +183,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'filters' => $location['codes'],
             'data' => [
                 'demandSatisfied'              => $demandSatisfied,
@@ -208,11 +207,9 @@ class PhoReportController extends Controller
     public function maternalCare(Request $request)
     {
         // 1. Time Period Parameters — women are counted in the month they registered
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
 
         // 2. Location Filter Parameters
         $location = $this->resolveLocationFilters($request);
@@ -514,7 +511,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'filters' => $location['codes'],
             'data' => [
                 'prenatal'    => $prenatal,
@@ -542,11 +539,9 @@ class PhoReportController extends Controller
      */
     public function childCare(Request $request)
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
 
         $location = $this->resolveLocationFilters($request);
 
@@ -784,7 +779,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'filters' => $location['codes'],
             'data' => [
                 'imm0_11'    => $imm0_11,
@@ -810,11 +805,9 @@ class PhoReportController extends Controller
      */
     public function oralHealthCare(Request $request)
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
 
         $sexEmpty = ['male' => 0, 'female' => 0, 'total' => 0];
         $brackets = ['children1_4', 'children5_9', 'adolescents10_19', 'adults20_59', 'seniors60plus', 'pregnant'];
@@ -878,7 +871,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'data' => [
                 'infantFirstVisit'            => $infantFirstVisit,
                 'firstVisit'                  => $firstVisit,
@@ -906,11 +899,9 @@ class PhoReportController extends Controller
      */
     public function nonCommunicableDisease(Request $request)
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
 
         $location = $this->resolveLocationFilters($request);
 
@@ -1099,7 +1090,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'filters' => $location['codes'],
             'data' => [
                 'lifestyle2059'  => $lifestyle2059,
@@ -1180,11 +1171,9 @@ class PhoReportController extends Controller
      */
     public function infectiousDisease(Request $request)
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $selectedMonth   = Carbon::create($year, $month, 1);
-        $startOfSelected = $selectedMonth->copy()->startOfMonth();
-        $endOfSelected   = $selectedMonth->copy()->endOfMonth();
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
 
         $sexEmpty = ['male' => 0, 'female' => 0, 'total' => 0];
         $bump = function (array &$bucket, string $key, ?string $sex) use ($sexEmpty) {
@@ -1317,7 +1306,7 @@ class PhoReportController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'period' => ['month' => $selectedMonth->format('F'), 'year' => $selectedMonth->year],
+            'period' => $period['periodMeta'],
             'data' => [
                 'filariasis'      => $filariasis,
                 'rabies'          => $rabies,
@@ -1326,6 +1315,73 @@ class PhoReportController extends Controller
                 'leprosy'         => $leprosy,
             ],
         ]);
+    }
+
+    /**
+     * Resolves the reporting period from the request. Accepts either a
+     * `quarter` (1-4) + `year` pair for quarterly reports (Q1AllPrograms.tsx)
+     * or a `month` (1-12) + `year` pair for monthly reports (M1AllPrograms.tsx,
+     * the default when neither is supplied). Returns Carbon start/end bounds
+     * for the selected period and the immediately preceding period (used for
+     * "previous month/quarter" ledger comparisons), plus a small metadata
+     * array echoed back in each endpoint's `period` response key.
+     */
+    private function resolveReportPeriod(Request $request): array
+    {
+        $year = (int) $request->input('year', now()->year);
+
+        if ($request->filled('quarter')) {
+            $quarter = (int) $request->input('quarter');
+            $quarter = max(1, min(4, $quarter ?: 1));
+
+            $startMonth = (($quarter - 1) * 3) + 1;
+            $start = Carbon::create($year, $startMonth, 1)->startOfMonth();
+            $end   = $start->copy()->addMonths(2)->endOfMonth();
+
+            $previousStart = $start->copy()->subMonths(3);
+            $previousEnd   = $previousStart->copy()->addMonths(2)->endOfMonth();
+
+            $quarterLabels = [
+                1 => '1st Quarter (Jan - Mar)',
+                2 => '2nd Quarter (Apr - Jun)',
+                3 => '3rd Quarter (Jul - Sep)',
+                4 => '4th Quarter (Oct - Dec)',
+            ];
+
+            return [
+                'start'         => $start,
+                'end'           => $end,
+                'previousStart' => $previousStart,
+                'previousEnd'   => $previousEnd,
+                'year'          => $start->year,
+                'periodMeta'    => [
+                    'quarter' => $quarter,
+                    'label'   => $quarterLabels[$quarter],
+                    'year'    => $start->year,
+                ],
+            ];
+        }
+
+        $month = (int) $request->input('month', now()->month);
+        $selectedMonth = Carbon::create($year, $month, 1);
+        $start = $selectedMonth->copy()->startOfMonth();
+        $end   = $selectedMonth->copy()->endOfMonth();
+
+        $previousMonth = $selectedMonth->copy()->subMonth();
+        $previousStart = $previousMonth->copy()->startOfMonth();
+        $previousEnd   = $previousMonth->copy()->endOfMonth();
+
+        return [
+            'start'         => $start,
+            'end'           => $end,
+            'previousStart' => $previousStart,
+            'previousEnd'   => $previousEnd,
+            'year'          => $selectedMonth->year,
+            'periodMeta'    => [
+                'month' => $selectedMonth->format('F'),
+                'year'  => $selectedMonth->year,
+            ],
+        ];
     }
 
     /**

@@ -5,6 +5,7 @@ import { type BreadcrumbItem } from '@/types';
 
 // Import child components
 import M1AllPrograms from './M1AllPrograms';
+import Q1AllPrograms from './Q1AllPrograms';
 import M28PAA from './M28PAA';
 import A1AllPrograms from './A1AllPrograms';
 
@@ -177,14 +178,12 @@ export default function PhoPage({
                     />
                 )}
                 {activeTab === 'q1' && (
-                    <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600">
-                        <M1AllPrograms
-                            regions={regions}
-                            provinces={provinces}
-                            municipalities={municipalities}
-                            barangays={barangays}
-                        />
-                    </div>
+                    <Q1AllPrograms
+                        regions={regions}
+                        provinces={provinces}
+                        municipalities={municipalities}
+                        barangays={barangays}
+                    />
                 )}
                 {activeTab === 'm2' && <M28PAA />}
                 {activeTab === 'a1' && <A1AllPrograms />}

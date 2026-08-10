@@ -72,6 +72,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/pho', [PhoController::class, 'pho'])->name('fhsis.pho');
     Route::get('/fhsis/public-nurse', [PublicNurseController::class, 'publicNurse'])->name('fhsis.publicNurse');
     Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');
+    Route::get('/fhsis/reports/export-q1-all', [PublicNurseController::class, 'q1AllDownload'])->name('fhsis.reports.q1AllDownload');
     Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
 });
 
