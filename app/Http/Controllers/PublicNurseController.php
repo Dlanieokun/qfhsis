@@ -215,7 +215,13 @@ class PublicNurseController extends Controller
         $year = $year ?: now()->format('Y');
 
         $this->put($sheet, 'D1', "FHSIS REPORT for the Month {$monthName}  Year {$year}");
-        $this->put($sheet, 'D2', 'Name of Barangay: ' . ($user->barangay ?? ''));
+        // barangay is cast to array on the User model (a nurse can be
+        // assigned more than one barangay), so it has to be imploded before
+        // being concatenated — passing the array straight through here is
+        // what throws "Array to string conversion".
+        $barangayList = $user->barangay ?? [];
+        $barangayText = is_array($barangayList) ? implode(', ', $barangayList) : (string) $barangayList;
+        $this->put($sheet, 'D2', 'Name of Barangay: ' . $barangayText);
         $this->put($sheet, 'D3', 'Name of BHS: ' . ($user->assigned_facility ?? ''));
         $this->put($sheet, 'D4', 'Name of Municipality/City: ' . ($user->municipality ?? ''));
         $this->put($sheet, 'D5', 'Name of Province: ' . ($user->province ?? ''));
