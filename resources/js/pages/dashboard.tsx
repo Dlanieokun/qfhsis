@@ -27,11 +27,6 @@ interface Report {
     status: string;
 }
 
-/**
- * Record counts keyed by the database table each module reads from.
- * Pass these from the controller (e.g. Model::count()) to populate the ledger —
- * any key left out simply renders as 0.
- */
 interface ModuleCounts {
     household_profiles?: number;
     maternal_care_records?: number;
@@ -90,13 +85,14 @@ interface Category {
     modules: ModuleDef[];
 }
 
+// Updated colors to be vibrant against the dark theme
 const CATEGORIES: Category[] = [
     {
         id: 'household',
         label: 'Household Profile',
         description: 'The base family registry every other record links back to.',
         icon: Home,
-        color: '#2F5233',
+        color: '#4FD1C5', // Teal/Cyan
         modules: [{ key: 'household_profiles', label: 'Household Profiles' }],
     },
     {
@@ -104,7 +100,7 @@ const CATEGORIES: Category[] = [
         label: 'Maternal & Child',
         description: 'Pregnancy tracking through delivery, and child growth through school age.',
         icon: Baby,
-        color: '#9C3B3B',
+        color: '#F472B6', // Pink
         modules: [
             { key: 'maternal_care_records', label: 'Maternal Care Records' },
             { key: 'prenatal_8anc_records', label: 'Prenatal 8-ANC Visits' },
@@ -124,7 +120,7 @@ const CATEGORIES: Category[] = [
         label: 'Family Planning',
         description: 'Active clients, method changes, follow-up visits, and drop-outs.',
         icon: Users,
-        color: '#4A5D8A',
+        color: '#818CF8', // Indigo
         modules: [
             { key: 'family_planning_records', label: 'Family Planning Records' },
             { key: 'family_planning_follow_ups', label: 'Follow-Up Visits' },
@@ -136,7 +132,7 @@ const CATEGORIES: Category[] = [
         label: 'Communicable Disease',
         description: 'Neglected tropical disease registries and animal-bite exposure.',
         icon: Bug,
-        color: '#B5762B',
+        color: '#FBBF24', // Amber
         modules: [
             { key: 'filariasis_registry_table', label: 'Filariasis Registry' },
             { key: 'schistosomiasis_registry', label: 'Schistosomiasis Registry' },
@@ -150,7 +146,7 @@ const CATEGORIES: Category[] = [
         label: 'NCD & Screening',
         description: 'Lifestyle-disease risk, cancer screening, and specialty checkups.',
         icon: Stethoscope,
-        color: '#3E6E5E',
+        color: '#34D399', // Emerald
         modules: [
             { key: 'philpen_risk_assessments', label: 'PhilPEN Risk Assessment' },
             { key: 'cervical_cancer_screenings', label: 'Cervical & Breast Screening' },
@@ -165,7 +161,7 @@ const CATEGORIES: Category[] = [
         label: 'Environmental',
         description: 'Water source, sanitation facilities, and safe-disposal status.',
         icon: Leaf,
-        color: '#6B7A3D',
+        color: '#A3E635', // Lime
         modules: [{ key: 'environmental_health_records', label: 'Environmental Health' }],
     },
 ];
@@ -175,33 +171,22 @@ const TOTAL_MODULES = CATEGORIES.reduce((sum, c) => sum + c.modules.length, 0);
 const breadcrumbs: BreadcrumbItem[] = [
     {
         title: 'FHSIS Dashboard',
-        href: '/fhsis-system/public/fhsis/dashboard',
+        href: '/qfhsis/public/fhsis/dashboard',
     },
 ];
 
-/** Perforation strip — a row of punched holes, like the tear-off edge of a clinic form. */
-function Perforation({ bg = '#EEF2E6' }: { bg?: string }) {
+/** Modern divider replacing the old paper perforation */
+function Divider() {
     return (
-        <div
-            className="h-2 w-full"
-            style={{
-                backgroundImage: `radial-gradient(circle, ${bg} 2.2px, transparent 2.2px)`,
-                backgroundSize: '11px 100%',
-                backgroundColor: '#C7D0BC',
-                backgroundRepeat: 'repeat-x',
-            }}
-        />
+        <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/20 to-transparent my-1" />
     );
 }
 
-/** Ledger card shell — cream stock, dashed rule margin, perforated top edge. */
-function LedgerCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+/** Glassmorphism UI Card replacing the old paper ledger */
+function DashboardCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
     return (
-        <div className={`bg-white border border-[#C7D0BC] rounded-b-md shadow-sm overflow-hidden ${className}`}>
-            <Perforation bg="#FFFFFF" />
-            <div className="relative pl-7 pr-5 py-5">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-[#C9827E]" />
-                <div className="absolute left-[18px] top-0 bottom-0 w-px border-l border-dotted border-[#C9827E]" />
+        <div className={`bg-white/10 backdrop-blur-md border border-white/10 rounded-xl shadow-lg overflow-hidden ${className}`}>
+            <div className="p-6">
                 {children}
             </div>
         </div>
@@ -226,7 +211,7 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        post('/fhsis-system/public/fhsis/reports', {
+        post('/qfhsis/public/fhsis/reports', {
             onSuccess: () => reset(),
         });
     };
@@ -244,46 +229,48 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                 />
             </Head>
 
-            <div className="min-h-screen bg-[#EEF2E6] font-['Public_Sans'] text-[#1F2A22] antialiased">
+            {/* Main gradient background matching the sidebar */}
+            <div className="min-h-screen bg-gradient-to-br from-[#1B3B66] to-[#126A59] font-['Public_Sans'] text-white antialiased">
                 <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-                    {/* Ledger header band */}
-                    <div className="relative bg-[#1F2A22] text-[#EEF2E6] rounded-t-md px-6 py-5 overflow-hidden">
-                        <p className="text-[11px] font-semibold tracking-[0.25em] uppercase text-[#A9B6A0] font-['Courier_Prime']">
+                    
+                    {/* Header Panel */}
+                    <div className="relative bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl px-6 py-8 overflow-hidden mb-8 shadow-md">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#4FD1C5] to-[#34D399]" />
+                        <p className="text-[11px] font-semibold tracking-[0.25em] uppercase text-teal-200/70 font-['Courier_Prime']">
                             Barangay Health Information System
                         </p>
-                        <h1 className="text-[28px] leading-tight font-bold tracking-tight font-['Zilla_Slab'] mt-1 pr-32">
-                            {auth.user.assigned_facility ? `${auth.user.assigned_facility} — Records Ledger` : 'Rural Health Unit — Records Ledger'}
+                        <h1 className="text-[28px] leading-tight font-bold tracking-tight font-['Zilla_Slab'] mt-2 pr-32 text-white">
+                            {auth.user.assigned_facility ? `${auth.user.assigned_facility} — System Overview` : 'Rural Health Unit — System Overview'}
                         </h1>
-                        <p className="text-[#C7D0BC] text-sm mt-1">
-                            Kept by <span className="font-semibold text-[#EEF2E6]">{auth.user.name}</span> · {auth.user.role}
+                        <p className="text-slate-300 text-sm mt-2">
+                            Session active for <span className="font-semibold text-white">{auth.user.name}</span> · {auth.user.role}
                         </p>
 
-                        {/* Ink stamp */}
-                        <div
-                            className="hidden sm:flex absolute top-5 right-6 items-center justify-center w-24 h-24 rounded-full border-[3px] border-double border-[#9C3B3B] text-[#c96868] text-[10px] font-bold uppercase tracking-widest text-center leading-tight font-['Courier_Prime']"
-                            style={{ transform: 'rotate(-9deg)' }}
-                        >
-                            System<br />Operational
+                        {/* System Status Badge */}
+                        <div className="hidden sm:flex absolute top-6 right-6 items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/30">
+                            <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                            <span className="text-teal-300 text-[10px] font-bold uppercase tracking-widest font-['Courier_Prime']">
+                                Online
+                            </span>
                         </div>
                     </div>
-                    <Perforation />
 
-                    {/* Ledger summary row */}
-                    <div className="bg-white border border-[#C7D0BC] border-t-0 rounded-b-md shadow-sm grid grid-cols-2 sm:grid-cols-4 divide-x divide-dashed divide-[#C7D0BC] mb-10">
-                        <LedgerStat icon={ClipboardList} label="Submissions" value={totalSubmittedReports} unit="logs" color="#1F2A22" />
-                        <LedgerStat icon={Baby} label="Pregnancies Tracked" value={totalMaternalCases} unit="cases" color="#9C3B3B" />
-                        <LedgerStat icon={Activity} label="Fully Immunized" value={totalImmunized} unit="children" color="#3E6E5E" />
-                        <LedgerStat icon={FileText} label="Program Modules" value={TOTAL_MODULES} unit={`across ${CATEGORIES.length}`} color="#4A5D8A" />
+                    {/* Summary row */}
+                    <div className="bg-black/10 backdrop-blur-sm border border-white/10 rounded-xl shadow-lg grid grid-cols-2 sm:grid-cols-4 divide-x divide-white/10 mb-10 overflow-hidden">
+                        <LedgerStat icon={ClipboardList} label="Submissions" value={totalSubmittedReports} unit="logs" color="#4FD1C5" />
+                        <LedgerStat icon={Baby} label="Pregnancies Tracked" value={totalMaternalCases} unit="cases" color="#F472B6" />
+                        <LedgerStat icon={Activity} label="Fully Immunized" value={totalImmunized} unit="children" color="#34D399" />
+                        <LedgerStat icon={FileText} label="Program Modules" value={TOTAL_MODULES} unit={`across ${CATEGORIES.length}`} color="#818CF8" />
                     </div>
 
-                    {/* Program directory + ledger */}
+                    {/* Program directory */}
                     <div className="mb-10">
-                        <h2 className="text-xl font-bold text-[#1F2A22] font-['Zilla_Slab'] mb-1">Program Records</h2>
-                        <p className="text-sm text-[#5B6B5E] mb-4">Choose a program to see every register kept for it.</p>
+                        <h2 className="text-xl font-bold text-white font-['Zilla_Slab'] mb-1">Program Records</h2>
+                        <p className="text-sm text-slate-300 mb-6">Choose a program to see every register kept for it.</p>
 
-                        <div className="flex flex-col lg:flex-row gap-5">
+                        <div className="flex flex-col lg:flex-row gap-6">
                             {/* Sidebar directory */}
-                            <div className="flex lg:flex-col gap-2 overflow-x-auto lg:w-64 shrink-0 pb-1">
+                            <div className="flex lg:flex-col gap-3 overflow-x-auto lg:w-72 shrink-0 pb-2">
                                 {CATEGORIES.map((cat) => {
                                     const isActive = cat.id === activeCategory;
                                     const Icon = cat.icon;
@@ -292,28 +279,24 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                                             key={cat.id}
                                             type="button"
                                             onClick={() => setActiveCategory(cat.id)}
-                                            className={`flex items-center gap-3 shrink-0 text-left px-3 py-2.5 rounded-md border transition-all whitespace-nowrap lg:whitespace-normal ${
-                                                isActive ? 'bg-white shadow-sm' : 'bg-white/40 border-transparent hover:bg-white/70'
+                                            className={`flex items-center gap-4 shrink-0 text-left px-4 py-3 rounded-lg border transition-all whitespace-nowrap lg:whitespace-normal ${
+                                                isActive 
+                                                    ? 'bg-white/15 border-white/20 shadow-md backdrop-blur-md' 
+                                                    : 'bg-black/10 border-transparent hover:bg-white/10'
                                             }`}
-                                            style={{
-                                                borderColor: isActive ? cat.color : 'transparent',
-                                                borderLeftWidth: 4,
-                                                borderLeftColor: cat.color,
-                                            }}
                                         >
                                             <span
-                                                className="flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-transform"
+                                                className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0 transition-all shadow-sm"
                                                 style={{
-                                                    backgroundColor: isActive ? cat.color : `${cat.color}1A`,
-                                                    color: isActive ? '#EEF2E6' : cat.color,
-                                                    transform: isActive ? 'rotate(-4deg)' : 'none',
+                                                    backgroundColor: isActive ? cat.color : 'rgba(255,255,255,0.05)',
+                                                    color: isActive ? '#112233' : cat.color,
                                                 }}
                                             >
-                                                <Icon className="w-4 h-4" />
+                                                <Icon className="w-5 h-5" />
                                             </span>
                                             <span className="min-w-0">
-                                                <span className="block text-sm font-semibold text-[#1F2A22]">{cat.label}</span>
-                                                <span className="block text-[10px] font-['Courier_Prime'] text-[#8A9583] uppercase tracking-wide">
+                                                <span className="block text-sm font-semibold text-white">{cat.label}</span>
+                                                <span className="block text-[11px] font-['Courier_Prime'] text-slate-400 uppercase tracking-wide mt-0.5">
                                                     {cat.modules.length} register{cat.modules.length > 1 ? 's' : ''}
                                                 </span>
                                             </span>
@@ -322,169 +305,176 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                                 })}
                             </div>
 
-                            {/* Ledger sheet */}
-                            <LedgerCard className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: current.color }} />
-                                    <h3 className="font-bold text-[#1F2A22] font-['Zilla_Slab'] text-lg">{current.label}</h3>
+                            {/* Details Card */}
+                            <DashboardCard className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div 
+                                        className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm" 
+                                        style={{ backgroundColor: `${current.color}20`, color: current.color }}
+                                    >
+                                        <current.icon className="w-5 h-5" />
+                                    </div>
+                                    <h3 className="font-bold text-white font-['Zilla_Slab'] text-2xl">{current.label}</h3>
                                 </div>
-                                <p className="text-sm text-[#5B6B5E] mb-4">{current.description}</p>
+                                <p className="text-sm text-slate-300 mb-6 pb-4 border-b border-white/10">{current.description}</p>
 
-                                <div>
+                                <div className="space-y-1">
                                     {current.modules.map((mod) => {
                                         const count = moduleCounts[mod.key] ?? 0;
                                         return (
-                                            <div key={mod.key} className="flex items-baseline gap-2 py-2">
-                                                <span className="text-sm text-[#1F2A22]">{mod.label}</span>
-                                                <span className="flex-1 border-b border-dotted border-[#AAB6A0] translate-y-[-3px]" />
-                                                <span
-                                                    className="font-['Courier_Prime'] font-bold text-lg tabular-nums"
-                                                    style={{ color: current.color }}
-                                                >
-                                                    {String(count).padStart(2, '0')}
-                                                </span>
+                                            <div key={mod.key} className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors group">
+                                                <span className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">{mod.label}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="h-px w-12 bg-white/10 hidden sm:block"></span>
+                                                    <span
+                                                        className="font-['Courier_Prime'] font-bold text-lg tabular-nums min-w-[2.5rem] text-right"
+                                                        style={{ color: current.color }}
+                                                    >
+                                                        {String(count).padStart(2, '0')}
+                                                    </span>
+                                                </div>
                                             </div>
                                         );
                                     })}
                                 </div>
-                            </LedgerCard>
+                            </DashboardCard>
                         </div>
                     </div>
 
-                    {/* Quarterly indicator entry + history */}
+                    {/* Forms and History Grid */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                        <LedgerCard className="lg:col-span-1">
-                            <div className="flex items-center gap-2 font-bold text-[#1F2A22] font-['Zilla_Slab'] text-lg mb-4">
-                                <PlusCircle className="w-5 h-5 text-[#4A5D8A]" />
+                        <DashboardCard className="lg:col-span-1">
+                            <div className="flex items-center gap-2 font-bold text-white font-['Zilla_Slab'] text-lg mb-6">
+                                <PlusCircle className="w-5 h-5 text-teal-400" />
                                 <h2>New Quarterly Entry</h2>
                             </div>
 
-                            <form onSubmit={handleSubmit} className="space-y-4">
+                            <form onSubmit={handleSubmit} className="space-y-5">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-semibold text-[#5B6B5E]">Year</label>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Year</label>
                                         <input
                                             type="text"
                                             maxLength={4}
                                             value={data.reporting_year}
                                             onChange={(e) => setData('reporting_year', e.target.value)}
-                                            className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition font-['Courier_Prime']"
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition font-['Courier_Prime']"
                                         />
-                                        {errors.reporting_year && <p className="text-[#9C3B3B] text-xs">{errors.reporting_year}</p>}
+                                        {errors.reporting_year && <p className="text-pink-400 text-xs">{errors.reporting_year}</p>}
                                     </div>
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-semibold text-[#5B6B5E]">Quarter</label>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Quarter</label>
                                         <select
                                             value={data.reporting_quarter}
                                             onChange={(e) => setData('reporting_quarter', e.target.value)}
-                                            className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition"
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition appearance-none"
                                         >
-                                            <option value="Q1">1st Quarter (Q1)</option>
-                                            <option value="Q2">2nd Quarter (Q2)</option>
-                                            <option value="Q3">3rd Quarter (Q3)</option>
-                                            <option value="Q4">4th Quarter (Q4)</option>
+                                            <option value="Q1" className="bg-[#1C416E]">1st Quarter (Q1)</option>
+                                            <option value="Q2" className="bg-[#1C416E]">2nd Quarter (Q2)</option>
+                                            <option value="Q3" className="bg-[#1C416E]">3rd Quarter (Q3)</option>
+                                            <option value="Q4" className="bg-[#1C416E]">4th Quarter (Q4)</option>
                                         </select>
                                     </div>
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-[#5B6B5E]">Total Pregnant Tracked</label>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Total Pregnant Tracked</label>
                                     <input
                                         type="number"
                                         min={0}
                                         value={data.total_pregnant_tracked}
                                         onChange={(e) => setData('total_pregnant_tracked', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition font-['Courier_Prime']"
+                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition font-['Courier_Prime']"
                                     />
-                                    {errors.total_pregnant_tracked && <p className="text-[#9C3B3B] text-xs">{errors.total_pregnant_tracked}</p>}
+                                    {errors.total_pregnant_tracked && <p className="text-pink-400 text-xs">{errors.total_pregnant_tracked}</p>}
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-[#5B6B5E]">Completed 4 Prenatal Checks (ANC)</label>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Completed 4 ANC Visits</label>
                                     <input
                                         type="number"
                                         min={0}
                                         value={data.completed_4_anc_visits}
                                         onChange={(e) => setData('completed_4_anc_visits', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition font-['Courier_Prime']"
+                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition font-['Courier_Prime']"
                                     />
-                                    {errors.completed_4_anc_visits && <p className="text-[#9C3B3B] text-xs">{errors.completed_4_anc_visits}</p>}
+                                    {errors.completed_4_anc_visits && <p className="text-pink-400 text-xs">{errors.completed_4_anc_visits}</p>}
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-[#5B6B5E]">Fully Immunized Children (FIC)</label>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Fully Immunized Children (FIC)</label>
                                     <input
                                         type="number"
                                         min={0}
                                         value={data.fully_immunized_children}
                                         onChange={(e) => setData('fully_immunized_children', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition font-['Courier_Prime']"
+                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition font-['Courier_Prime']"
                                     />
-                                    {errors.fully_immunized_children && <p className="text-[#9C3B3B] text-xs">{errors.fully_immunized_children}</p>}
+                                    {errors.fully_immunized_children && <p className="text-pink-400 text-xs">{errors.fully_immunized_children}</p>}
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-[#5B6B5E]">Exclusive Breastfed Infants</label>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Exclusive Breastfed Infants</label>
                                     <input
                                         type="number"
                                         min={0}
                                         value={data.infants_exclusive_breastfed}
                                         onChange={(e) => setData('infants_exclusive_breastfed', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-[#F5F7EF] border border-[#C7D0BC] rounded-md px-3 py-2 text-sm text-[#1F2A22] outline-none focus:border-[#4A5D8A] transition font-['Courier_Prime']"
+                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 transition font-['Courier_Prime']"
                                     />
                                     {errors.infants_exclusive_breastfed && (
-                                        <p className="text-[#9C3B3B] text-xs">{errors.infants_exclusive_breastfed}</p>
+                                        <p className="text-pink-400 text-xs">{errors.infants_exclusive_breastfed}</p>
                                     )}
                                 </div>
 
                                 <button
                                     type="submit"
                                     disabled={processing}
-                                    className="w-full inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-[#EEF2E6] bg-[#1F2A22] rounded-md hover:bg-[#16201A] disabled:bg-[#AAB6A0] transition mt-2"
+                                    className="w-full inline-flex items-center justify-center px-4 py-3 text-sm font-semibold text-white bg-[#1A7463] rounded-lg hover:bg-[#135A4D] disabled:bg-white/10 disabled:text-slate-400 transition-colors mt-4 shadow-md"
                                 >
                                     {processing ? 'Filing Record…' : 'Submit Indicators'}
                                 </button>
                             </form>
-                        </LedgerCard>
+                        </DashboardCard>
 
-                        <LedgerCard className="lg:col-span-2">
-                            <div className="flex items-center gap-2 font-bold text-[#1F2A22] font-['Zilla_Slab'] text-lg mb-4">
-                                <Activity className="w-5 h-5 text-[#4A5D8A]" />
+                        <DashboardCard className="lg:col-span-2">
+                            <div className="flex items-center gap-2 font-bold text-white font-['Zilla_Slab'] text-lg mb-6">
+                                <Activity className="w-5 h-5 text-teal-400" />
                                 <h2>Submitted Indicators History</h2>
                             </div>
 
                             {reports.length === 0 ? (
-                                <div className="py-10 text-center text-[#8A9583] text-sm space-y-1">
-                                    <FileText className="w-8 h-8 mx-auto text-[#C7D0BC] mb-2" />
-                                    <p className="font-medium text-[#5B6B5E]">No logs on record</p>
+                                <div className="py-12 text-center text-slate-400 text-sm space-y-2 bg-black/10 rounded-lg border border-white/5">
+                                    <FileText className="w-10 h-10 mx-auto text-slate-500 mb-3 opacity-50" />
+                                    <p className="font-medium text-slate-300 text-base">No logs on record</p>
                                     <p className="text-xs">Submit your facility's quarterly matrix via the panel on the left.</p>
                                 </div>
                             ) : (
-                                <div className="overflow-x-auto -mx-1">
-                                    <table className="w-full text-left border-collapse text-xs text-[#5B6B5E]">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-sm text-slate-300">
                                         <thead>
-                                            <tr className="text-[#8A9583] font-bold uppercase border-b border-dashed border-[#C7D0BC] font-['Courier_Prime']">
-                                                <th className="px-3 py-2">Period</th>
-                                                <th className="px-3 py-2">Maternal Tracker</th>
-                                                <th className="px-3 py-2">Immunized Base</th>
-                                                <th className="px-3 py-2">Excl. Breastfed</th>
-                                                <th className="px-3 py-2">Status</th>
+                                            <tr className="text-slate-400 font-bold uppercase border-b border-white/10 font-['Courier_Prime'] text-xs">
+                                                <th className="px-4 py-3 bg-black/20 rounded-tl-lg">Period</th>
+                                                <th className="px-4 py-3 bg-black/20">Maternal Tracker</th>
+                                                <th className="px-4 py-3 bg-black/20">Immunized Base</th>
+                                                <th className="px-4 py-3 bg-black/20">Excl. Breastfed</th>
+                                                <th className="px-4 py-3 bg-black/20 rounded-tr-lg">Status</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-dashed divide-[#E2E7D8]">
+                                        <tbody className="divide-y divide-white/5">
                                             {reports.map((report) => (
-                                                <tr key={report.id} className="hover:bg-[#F5F7EF] transition">
-                                                    <td className="px-3 py-3 font-semibold text-[#1F2A22] font-['Courier_Prime']">
+                                                <tr key={report.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-4 py-4 font-semibold text-white font-['Courier_Prime']">
                                                         FY {report.reporting_year} — {report.reporting_quarter}
                                                     </td>
-                                                    <td className="px-3 py-3 font-['Courier_Prime']">
+                                                    <td className="px-4 py-4 font-['Courier_Prime']">
                                                         {report.total_pregnant_tracked}{' '}
-                                                        <span className="text-[#8A9583] text-[10px]">({report.completed_4_anc_visits} ANC)</span>
+                                                        <span className="text-slate-500 text-[11px] ml-1">({report.completed_4_anc_visits} ANC)</span>
                                                     </td>
-                                                    <td className="px-3 py-3 font-medium font-['Courier_Prime']">{report.fully_immunized_children}</td>
-                                                    <td className="px-3 py-3 font-medium font-['Courier_Prime']">{report.infants_exclusive_breastfed}</td>
-                                                    <td className="px-3 py-3">
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#4A5D8A]/10 text-[#4A5D8A] border border-[#4A5D8A]/20 uppercase">
+                                                    <td className="px-4 py-4 font-medium font-['Courier_Prime']">{report.fully_immunized_children}</td>
+                                                    <td className="px-4 py-4 font-medium font-['Courier_Prime']">{report.infants_exclusive_breastfed}</td>
+                                                    <td className="px-4 py-4">
+                                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20 uppercase tracking-wide">
                                                             {report.status}
                                                         </span>
                                                     </td>
@@ -494,7 +484,7 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                                     </table>
                                 </div>
                             )}
-                        </LedgerCard>
+                        </DashboardCard>
                     </div>
                 </div>
             </div>
@@ -516,13 +506,15 @@ function LedgerStat({
     color: string;
 }) {
     return (
-        <div className="p-5 flex flex-col items-center text-center gap-1.5">
-            <Icon className="w-4 h-4 mb-0.5" style={{ color }} />
-            <p className="text-2xl font-bold font-['Courier_Prime'] tabular-nums" style={{ color }}>
+        <div className="p-6 flex flex-col items-center text-center gap-2 hover:bg-white/5 transition-colors">
+            <div className="p-2 rounded-lg bg-black/20 mb-1">
+                <Icon className="w-5 h-5" style={{ color }} />
+            </div>
+            <p className="text-3xl font-bold font-['Courier_Prime'] tabular-nums" style={{ color }}>
                 {value}
             </p>
-            <p className="text-[10px] font-semibold text-[#8A9583] uppercase tracking-wide">
-                {label} <span className="block sm:inline">({unit})</span>
+            <p className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                {label} <span className="block sm:inline text-slate-500">({unit})</span>
             </p>
         </div>
     );

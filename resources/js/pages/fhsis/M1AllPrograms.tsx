@@ -1538,7 +1538,7 @@ export default function M1AllPrograms({
     setFpLoading(true);
     setFpError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/family-planning/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/family-planning/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1556,7 +1556,7 @@ export default function M1AllPrograms({
     setMcLoading(true);
     setMcError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/maternal-care/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/maternal-care/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1574,7 +1574,7 @@ export default function M1AllPrograms({
     setCcLoading(true);
     setCcError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/child-care/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/child-care/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1592,7 +1592,7 @@ export default function M1AllPrograms({
     setOhLoading(true);
     setOhError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/oral-health/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/oral-health/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1610,7 +1610,7 @@ export default function M1AllPrograms({
     setNcdLoading(true);
     setNcdError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/non-communicable-disease/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/non-communicable-disease/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1628,7 +1628,7 @@ export default function M1AllPrograms({
     setEhLoading(true);
     setEhError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/environmental-health/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/environmental-health/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1646,7 +1646,7 @@ export default function M1AllPrograms({
     setIdLoading(true);
     setIdError(null);
     try {
-      const res = await fetch(`/fhsis-system/public/api/infectious-disease/report?${buildReportQuery()}`);
+      const res = await fetch(`/qfhsis/public/api/infectious-disease/report?${buildReportQuery()}`);
       if (!res.ok) {
         throw new Error(`Request failed with status ${res.status}`);
       }
@@ -1813,7 +1813,7 @@ export default function M1AllPrograms({
         </div>
         <div className="flex gap-2">
           <a
-            href="/fhsis-system/public/fhsis/reports/export-m1-all"
+            href="/qfhsis/public/fhsis/reports/export-m1-all"
             className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 transition text-sm inline-flex items-center"
           >
             Download M1 (.xlsx)

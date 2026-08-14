@@ -12,11 +12,11 @@ import {
 import { type SharedData } from '@/types';
 
 const NAV_ITEMS = [
-    { label: 'Dashboard',        href: '/fhsis-system/public/fhsis/dashboard',         icon: LayoutDashboard },
-    { label: 'PHO Forms',        href: '/fhsis-system/public/fhsis/pho',               icon: FileText },
-    { label: 'Nurse Submittion', href: '/fhsis-system/public/fhsis/public-nurse',      icon: ClipboardList },
-    { label: 'General Report',   href: '/fhsis-system/public/fhsis/reports',           icon: BarChart3 },
-    { label: 'User Management',  href: '/fhsis-system/public/fhsis/users',             icon: Users },
+    { label: 'Dashboard',        href: '/qfhsis/public/fhsis/dashboard',         icon: LayoutDashboard },
+    { label: 'PHO Forms',        href: '/qfhsis/public/fhsis/pho',               icon: FileText },
+    { label: 'Nurse Submittion', href: '/qfhsis/public/fhsis/public-nurse',      icon: ClipboardList },
+    { label: 'General Report',   href: '/qfhsis/public/fhsis/reports',           icon: BarChart3 },
+    { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
 ];
 
 export default function AppSidebar() {
@@ -131,7 +131,7 @@ export default function AppSidebar() {
 
                     {/* Logout */}
                     <Link
-                        href="/fhsis-system/public/logout"
+                        href="/qfhsis/public/logout"
                         method="post"
                         as="button"
                         className="rounded p-1 text-white/50 transition-all hover:text-red-400 hover:scale-110"

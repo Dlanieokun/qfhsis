@@ -59,8 +59,8 @@ interface ReportProps {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'FHSIS Dashboard', href: '/fhsis-system/public/fhsis/dashboard' },
-    { title: 'General Report', href: '/fhsis-system/public/fhsis/reports' },
+    { title: 'FHSIS Dashboard', href: '/qfhsis/public/fhsis/dashboard' },
+    { title: 'General Report', href: '/qfhsis/public/fhsis/reports' },
 ];
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -155,12 +155,12 @@ export default function GeneralReport({
     const barangays = filters.barangays ?? [];
 
     const applyFilters = (year: string, barangay: string) =>
-        router.get('/fhsis-system/public/fhsis/reports', { year, barangay }, { preserveState: true });
+        router.get('/qfhsis/public/fhsis/reports', { year, barangay }, { preserveState: true });
 
     const exportURL = (path: string, section: string) =>
         `${path}?year=${selectedYear}&barangay=${selectedBarangay}&section=${section}`;
 
-    const go = (section: string, path = '/fhsis-system/public/fhsis/reports/export') =>
+    const go = (section: string, path = '/qfhsis/public/fhsis/reports/export') =>
         () => { window.location.href = exportURL(path, section); };
 
     return (
@@ -242,7 +242,7 @@ export default function GeneralReport({
                             title="Family Planning"
                             subtitle="Responsible parenthood methods and program reach"
                             footerNote="Community resource utilization"
-                            onExport={go('fp', '/fhsis-system/public/fhsis-system/public/fhsis/reports/export-fp')}
+                            onExport={go('fp', '/qfhsis/public/qfhsis/public/fhsis/reports/export-fp')}
                         >
                             <StatRow label="Active clients" value={fp_stats.total_clients} />
                             <StatRow label="New acceptors this period" value={fp_stats.new_acceptors} accent="text-amber-600" />
@@ -254,7 +254,7 @@ export default function GeneralReport({
                             title="Maternal Health"
                             subtitle="Pregnancy tracking and prenatal monitoring"
                             footerNote="Antenatal clinical data"
-                            onExport={go('maternal', '/fhsis-system/public/fhsis/reports/export-mc')}
+                            onExport={go('maternal', '/qfhsis/public/fhsis/reports/export-mc')}
                         >
                             <StatRow label="Tracked pregnancies" value={maternal_stats.total_tracked} />
                             <StatRow label="Adolescent pregnancies (≤19 yrs)" value={maternal_stats.adolescent_pregnancies} accent="text-rose-500" />
@@ -270,7 +270,7 @@ export default function GeneralReport({
                             title="Child Immunization"
                             subtitle="Infant vaccination records and FIC/CIC coverage"
                             footerNote="0–11 month immunization tracking"
-                            onExport={go('child', '/fhsis-system/public/fhsis/reports/export-ci')}
+                            onExport={go('child', '/qfhsis/public/fhsis/reports/export-ci')}
                         >
                             <StatRow label="Total records" value={child_immunization.total_records} />
                             <StatRow label="Fully immunized children (FIC)" value={child_immunization.fic_count} accent="text-emerald-600" />
@@ -283,7 +283,7 @@ export default function GeneralReport({
                             title="Child Immunization — School"
                             subtitle="School-based and community HPV vaccination records"
                             footerNote="SBI/CBI school-age coverage"
-                            onExport={go('child_immunization_school', '/fhsis-system/public/fhsis/reports/export-cis')}
+                            onExport={go('child_immunization_school', '/qfhsis/public/fhsis/reports/export-cis')}
                         >
                             <StatRow label="Total records" value={child_immunization_school.total_records} />
                             <StatRow label="HPV fully immunized females" value={child_immunization_school.hpv_completed} accent="text-teal-600" />
@@ -295,7 +295,7 @@ export default function GeneralReport({
                             title="Child Nutrition"
                             subtitle="Micronutrient supplementation and malnutrition management"
                             footerNote="MAM / SAM therapeutic outcomes"
-                            onExport={go('child_nutrition', '/fhsis-system/public/fhsis/reports/export-cn')}
+                            onExport={go('child_nutrition', '/qfhsis/public/fhsis/reports/export-cn')}
                         >
                             <StatRow label="Total records" value={child_nutrition.total_records} />
                             <StatRow label="MAM identified" value={child_nutrition.mam_identified} accent="text-amber-500" />
@@ -308,7 +308,7 @@ export default function GeneralReport({
                             title="Child Sick"
                             subtitle="IMCI illness diagnosis and case management records"
                             footerNote="Diarrhea, pneumonia & measles tracking"
-                            onExport={go('child_sick', '/fhsis-system/public/fhsis/reports/export-cms')}
+                            onExport={go('child_sick', '/qfhsis/public/fhsis/reports/export-cms')}
                         >
                             <StatRow label="Total records" value={child_sick.total_records} />
                             <StatRow label="Diagnosed measles" value={child_sick.diagnosed_measles} accent="text-rose-500" />
@@ -324,7 +324,7 @@ export default function GeneralReport({
                             title="Oral Health Care"
                             subtitle="Dental screening, prophylaxis, and fluoride varnish records"
                             footerNote="RPOC completeness tracking"
-                            onExport={go('oral_health', '/fhsis-system/public/fhsis/reports/export-oral')}
+                            onExport={go('oral_health', '/qfhsis/public/fhsis/reports/export-oral')}
                         >
                             <StatRow label="Total records" value={oral_health.total_records} />
                             <StatRow label="Complete RPOC0 (0–71 mos)" value={oral_health.complete_rpoc0} accent="text-cyan-600" />
@@ -336,7 +336,7 @@ export default function GeneralReport({
                             title="PhilPEN Risk Assessment"
                             subtitle="NCD risk factor screening and hypertension monitoring"
                             footerNote="BTI and lifestyle risk indicators"
-                            onExport={go('philpen', '/fhsis-system/public/fhsis/reports/export-philpen')}
+                            onExport={go('philpen', '/qfhsis/public/fhsis/reports/export-philpen')}
                         >
                             <StatRow label="Total assessed" value={philpen.total_records} />
                             <StatRow label="Hypertension detected" value={philpen.hypertension_positive} accent="text-rose-500" />
@@ -349,7 +349,7 @@ export default function GeneralReport({
                             title="Eyes Screening"
                             subtitle="Vision and eye disease detection records"
                             footerNote="Referral and disease code tracking"
-                            onExport={go('eyes_screening', '/fhsis-system/public/fhsis/reports/export-eyes')}
+                            onExport={go('eyes_screening', '/qfhsis/public/fhsis/reports/export-eyes')}
                         >
                             <StatRow label="Total screened" value={eyes_screening.total_screened} />
                             <StatRow label="With eye disease detected" value={eyes_screening.with_eye_disease} accent="text-indigo-600" />
@@ -361,7 +361,7 @@ export default function GeneralReport({
                             title="Cervical Cancer Screening"
                             subtitle="Cervical and breast cancer risk assessment records"
                             footerNote="Linked-to-care outcomes"
-                            onExport={go('cervical_cancer', '/fhsis-system/public/fhsis/reports/export-cervical')}
+                            onExport={go('cervical_cancer', '/qfhsis/public/fhsis/reports/export-cervical')}
                         >
                             <StatRow label="Total records" value={cervical_cancer.total_records} />
                             <StatRow label="Cervical screening done" value={cervical_cancer.cervical_done} accent="text-pink-600" />
@@ -374,7 +374,7 @@ export default function GeneralReport({
                             title="Geriatric Screening"
                             subtitle="Senior citizen health screening and immunization records"
                             footerNote="60+ PPV and influenza coverage"
-                            onExport={go('geriatric', '/fhsis-system/public/fhsis/reports/export-geriatric')}
+                            onExport={go('geriatric', '/qfhsis/public/fhsis/reports/export-geriatric')}
                         >
                             <StatRow label="Total records" value={geriatric.total_records} />
                             <StatRow label="PPV received (≥60 yrs)" value={geriatric.ppv_received} accent="text-slate-700" />
@@ -389,7 +389,7 @@ export default function GeneralReport({
                             title="Filariasis Registry"
                             subtitle="Lymphatic filariasis NBE/RDT screening and MDA records"
                             footerNote="Lymphedema and elephantiasis morbidity"
-                            onExport={go('filariasis', '/fhsis-system/public/fhsis/reports/export-filariasis')}
+                            onExport={go('filariasis', '/qfhsis/public/fhsis/reports/export-filariasis')}
                         >
                             <StatRow label="Total registered" value={filariasis.total_records} />
                             <StatRow label="With lymphedema" value={filariasis.with_lymphedema} accent="text-lime-700" />
@@ -402,7 +402,7 @@ export default function GeneralReport({
                             title="Leprosy Registry"
                             subtitle="Leprosy case confirmation, MDT, and treatment outcomes"
                             footerNote="Fixed MDT completion tracking"
-                            onExport={go('leprosy', '/fhsis-system/public/fhsis/reports/export-leprosy')}
+                            onExport={go('leprosy', '/qfhsis/public/fhsis/reports/export-leprosy')}
                         >
                             <StatRow label="Total registered" value={leprosy.total_records} />
                             <StatRow label="Paucibacillary cases" value={leprosy.paucibacillary} />
@@ -427,7 +427,7 @@ export default function GeneralReport({
                             title="Schistosomiasis Registry"
                             subtitle="Screening, diagnosis, treatment, and MDA records"
                             footerNote="Confirmed cases and cure rates"
-                            onExport={go('schistosomiasis', '/fhsis-system/public/fhsis/reports/export-schisto')}
+                            onExport={go('schistosomiasis', '/qfhsis/public/fhsis/reports/export-schisto')}
                         >
                             <StatRow label="Total registered" value={schistosomiasis.total_records} />
                             <StatRow label="Confirmed positive" value={schistosomiasis.confirmed_positive} accent="text-blue-700" />
@@ -440,7 +440,7 @@ export default function GeneralReport({
                             title="Soil-Transmitted Helminthiasis"
                             subtitle="STH screening, treatment, and MDA round coverage"
                             footerNote="January & July MDA rounds"
-                            onExport={go('sth', '/fhsis-system/public/fhsis/reports/export-sth')}
+                            onExport={go('sth', '/qfhsis/public/fhsis/reports/export-sth')}
                         >
                             <StatRow label="Total registered" value={sth.total_records} />
                             <StatRow label="Positive on screening" value={sth.positive_result} accent="text-amber-600" />
@@ -457,7 +457,7 @@ export default function GeneralReport({
                             title="Mental Health"
                             subtitle="mhGAP screening and mental disorder assessment records"
                             footerNote="Community mental health coverage"
-                            onExport={go('mental_health', '/fhsis-system/public/fhsis/reports/export-mh')}
+                            onExport={go('mental_health', '/qfhsis/public/fhsis/reports/export-mh')}
                         >
                             <StatRow label="Total assessed" value={mental_health.total_records} />
                             <StatRow label="Screened via mhGAP" value={mental_health.screened_mhgap} accent="text-purple-600" />
@@ -469,7 +469,7 @@ export default function GeneralReport({
                             title="Environmental Health"
                             subtitle="Water source quality and sanitation facility records"
                             footerNote="WASH indicators and safety plans"
-                            onExport={go('environmental_health', '/fhsis-system/public/fhsis/reports/export-envi')}
+                            onExport={go('environmental_health', '/qfhsis/public/fhsis/reports/export-envi')}
                         >
                             <StatRow label="Total households" value={environmental_health.total_records} />
                             <StatRow label="Safely managed drinking water" value={environmental_health.safely_managed_water} accent="text-teal-600" />

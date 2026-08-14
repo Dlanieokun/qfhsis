@@ -108,8 +108,8 @@ interface PhoPageProps {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'FHSIS', href: '/fhsis-system/public/fhsis/dashboard' },
-    { title: 'PHO Form M1', href: '/fhsis-system/public/fhsis/pho' },
+    { title: 'FHSIS', href: '/qfhsis/public/fhsis/dashboard' },
+    { title: 'PHO Form M1', href: '/qfhsis/public/fhsis/pho' },
 ];
 
 export default function PhoPage({

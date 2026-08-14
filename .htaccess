@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Redirect 403 Forbidden to Laravel
+    ErrorDocument 403 /qfhsis/public/index.php
+
+    # Redirect 404 Not Found to Laravel
+    ErrorDocument 404 /qfhsis/public/index.php
+</IfModule>
+
+# Disable directory listing
+Options -Indexes
+
+# Protect .env
+<Files ".env">
+    Require all denied
+</Files>

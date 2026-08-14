@@ -75,8 +75,8 @@ const tabs: TabDefinition[] = [
 ];
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'FHSIS', href: '/fhsis-system/public/fhsis/dashboard' },
-    { title: 'Public Health Nurse', href: '/fhsis-system/public/fhsis/public-nurse' },
+    { title: 'FHSIS', href: '/qfhsis/public/fhsis/dashboard' },
+    { title: 'Public Health Nurse', href: '/qfhsis/public/fhsis/public-nurse' },
 ];
 
 const months = [
@@ -135,7 +135,7 @@ export default function PublicNursePage({
 
     const triggerLocationQuery = (updatedFilters: Record<string, string>) => {
         router.get(
-            '/fhsis-system/public/fhsis/public-nurse',
+            '/qfhsis/public/fhsis/public-nurse',
             { 
                 month: selectedMonth, 
                 year: selectedYear,
@@ -158,7 +158,7 @@ export default function PublicNursePage({
     };
 
     const handleValidate = () => {
-        router.post('/fhsis-system/public/fhsis/public-nurse/validate', {
+        router.post('/qfhsis/public/fhsis/public-nurse/validate', {
             month: selectedMonth,
             year: selectedYear,
             region: selectedRegion,
