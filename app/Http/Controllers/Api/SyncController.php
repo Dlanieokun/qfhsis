@@ -60,6 +60,11 @@ class SyncController extends Controller
         // --- NEW: Mental & Environmental Health ---
         'mentalHealthRecords'             => 'mental_health_records',
         'environmentalHealthRecords'      => 'environmental_health_records',
+
+        // --- NEW: Vital Statistics ---
+        'infantDeathRecords'              => 'infant_deaths',
+        'maternalDeathRecords'            => 'maternal_deaths',
+        'morbidityRecords'                => 'morbidity_records',
     ];
 
     // ─────────────────────────────────────────────────────────────
@@ -108,6 +113,10 @@ class SyncController extends Controller
         'intrapartum_records'                => ['relation' => 'maternal', 'column' => 'maternalRecordId'],
         'prenatal_lab_screening_records'     => ['relation' => 'maternal', 'column' => 'maternalRecordId'],
         'prenatal_supplementation_records'  => ['relation' => 'maternal', 'column' => 'maternal_record_id'],
+
+        // --- NEW: Vital Statistics (linked via profile_id) ---
+        'infant_deaths'                     => ['relation' => 'profile', 'column' => 'profile_id'],
+        'maternal_deaths'                   => ['relation' => 'profile', 'column' => 'profile_id'],
     ];
 
     // ─────────────────────────────────────────────────────────────
@@ -265,6 +274,14 @@ class SyncController extends Controller
                             }
                         }
 
+                        // --- NEW: Vital Statistics Booleans ---
+                        if ($dbTableName === 'infant_deaths' || $dbTableName === 'maternal_deaths') {
+                            if (isset($record['synced'])) $record['synced'] = $record['synced'] ? 1 : 0;
+                        }
+                        if ($dbTableName === 'morbidity_records') {
+                            if (isset($record['is_synced'])) $record['is_synced'] = $record['is_synced'] ? 1 : 0;
+                        }
+
                         // Auto-timestamp fallback for tables that skip classification_metrics block
                         if (!in_array($dbTableName, ['classification_metrics'])) {
                             if (!isset($record['created_at'])) {
@@ -346,30 +363,6 @@ class SyncController extends Controller
                                         Log::warning("Sync push: unique constraint violation on {$dbTableName}", [
                                             'error' => $e->getMessage(),
                                         ]);
-                                    } else {
-                                        throw $e;
-                                    }
-                                }
-                            }
-                        } else {
-                            // Edited record — upsert: update if the row already
-                            // exists on the server, insert if it somehow doesn't.
-                            $recordExists = DB::table($dbTableName)
-                                ->where($pkName, $pkValue)
-                                ->exists();
-
-                            if ($recordExists) {
-                                DB::table($dbTableName)
-                                    ->where($pkName, $pkValue)
-                                    ->update($record);
-                            } else {
-                                try {
-                                    DB::table($dbTableName)->insert($record);
-                                } catch (\Illuminate\Database\QueryException $e) {
-                                    if ($e->getCode() === '23000') {
-                                        DB::table($dbTableName)
-                                            ->where($pkName, $pkValue)
-                                            ->update($record);
                                     } else {
                                         throw $e;
                                     }
@@ -715,6 +708,14 @@ class SyncController extends Controller
             foreach ($envBoolFields as $key) {
                 if (array_key_exists($key, $record)) $record[$key] = (bool) $record[$key];
             }
+        }
+
+        // --- NEW: Vital Statistics Booleans ---
+        if ($dbTableName === 'infant_deaths' || $dbTableName === 'maternal_deaths') {
+            if (array_key_exists('synced', $record)) $record['synced'] = (bool) $record['synced'];
+        }
+        if ($dbTableName === 'morbidity_records') {
+            if (array_key_exists('is_synced', $record)) $record['is_synced'] = (bool) $record['is_synced'];
         }
 
         return $record;

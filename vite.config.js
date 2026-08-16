@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-    base: '/fhsis-system/public/build/',
+    base: '/qfhsis/public/build/',
     plugins: [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.tsx'],

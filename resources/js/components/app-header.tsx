@@ -18,7 +18,7 @@ import AppLogoIcon from './app-logo-icon';
 const mainNavItems: NavItem[] = [
     {
         title: 'Dashboard',
-        url: '/fhsis-system/public/dashboard',
+        url: '/qfhsis/public/dashboard',
         icon: LayoutGrid,
     },
 ];
