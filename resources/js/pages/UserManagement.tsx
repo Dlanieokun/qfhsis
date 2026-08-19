@@ -46,8 +46,8 @@ interface LocationItem {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'FHSIS Dashboard', href: '/fhsis/dashboard' },
-    { title: 'User Management', href: '/fhsis/users' },
+    { title: 'FHSIS Dashboard', href: '/qfhsis/public/fhsis/dashboard' },
+    { title: 'User Management', href: '/qfhsis/public/fhsis/users' },
 ];
 
 const parseArray = (val: any): string[] => {
@@ -95,7 +95,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get('/fhsis/users', { search: searchTerm }, { preserveState: true });
+        router.get('/qfhsis/public/fhsis/users', { search: searchTerm }, { preserveState: true });
     };
 
     const openCreateModal = () => {
@@ -195,15 +195,15 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (editingUser) {
-            put(`/fhsis/users/${editingUser.id}`, { onSuccess: () => closeModal() });
+            put(`/qfhsis/public/fhsis/users/${editingUser.id}`, { onSuccess: () => closeModal() });
         } else {
-            post('/fhsis/users', { onSuccess: () => closeModal() });
+            post('/qfhsis/public/fhsis/users', { onSuccess: () => closeModal() });
         }
     };
 
     const handleDelete = (id: number) => {
         if (confirm('Are you sure you want to revoke system privileges for this user profile?')) {
-            router.delete(`/fhsis/users/${id}`);
+            router.delete(`/qfhsis/public/fhsis/users/${id}`);
         }
     };
 
@@ -221,7 +221,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         }));
 
         if (code) {
-            const res = await axios.get(`/api/locations/provinces/${code}`);
+            const res = await axios.get(`/qfhsis/public/api/locations/provinces/${code}`);
             setProvinces(res.data);
             setMunicipalities([]);
             setBarangays([]);
@@ -245,7 +245,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         }));
 
         if (code) {
-            const res = await axios.get(`/api/locations/municipalities/${code}`);
+            const res = await axios.get(`/qfhsis/public/api/locations/municipalities/${code}`);
             setMunicipalities(res.data);
             setBarangays([]);
         } else {
@@ -266,7 +266,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         }));
 
         if (code) {
-            const res = await axios.get(`/api/locations/barangays/${code}`);
+            const res = await axios.get(`/qfhsis/public/api/locations/barangays/${code}`);
             setBarangays(res.data);
         } else {
             setBarangays([]);

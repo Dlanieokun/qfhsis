@@ -17,7 +17,7 @@ return new class extends Migration
             $table->foreignId('userId')->constrained('users')->onDelete('cascade');
             $table->string('date_assessment')->nullable();
             $table->string('family_serial')->nullable();
-            $table->string('client_name')->nullable(); // Mapped from Room entity's @ColumnInfo
+            $table->string('client_name')->nullable();
             $table->string('address')->nullable();
             $table->string('date_of_birth')->nullable();
             $table->string('age')->nullable();
