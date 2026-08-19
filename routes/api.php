@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\Api\PhoReportController;
+use App\Http\Controllers\M28PAAController;
+use App\Http\Controllers\Api\A1AllProgramController;
 
 /*
 |--------------------------------------------------------------------------
@@ -45,6 +47,8 @@ Route::get('/oral-health/report', [PhoReportController::class, 'oralHealthCare']
 Route::get('/non-communicable-disease/report', [PhoReportController::class, 'nonCommunicableDisease']);
 Route::get('/environmental-health/report', [PhoReportController::class, 'environmentalHealth']);
 Route::get('/infectious-disease/report', [PhoReportController::class, 'infectiousDisease']);
+Route::get('/reports/m28paa', [M28PAAController::class, 'm28paaReport']);
+Route::get('/reports/filtered-m1-all', [A1AllProgramController::class, 'filteredM1AllReport']);
 
 // Guarded backend routes — require a valid Sanctum bearer token.
 Route::middleware('auth:sanctum')->group(function () {

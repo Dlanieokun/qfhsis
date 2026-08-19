@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('leprosy_registry', function (Blueprint $table) {
             $table->id();
             $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
-            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
             $table->string('date_of_registration')->nullable();
             $table->string('name')->nullable();
             $table->string('address')->nullable();

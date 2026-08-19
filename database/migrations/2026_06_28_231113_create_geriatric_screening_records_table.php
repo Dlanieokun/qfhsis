@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('geriatric_screening_records', function (Blueprint $table) {
             $table->id('record_no'); // Setting PK to match entity
-            $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
-            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
             $table->string('date_of_screening')->nullable();
             $table->string('family_serial_number')->nullable();
             $table->string('name')->nullable();
@@ -30,9 +30,9 @@ return new class extends Migration
             $table->string('ppv_date_given')->nullable();
             $table->string('influenza_date_given')->nullable();
             $table->text('remarks')->nullable();
-            $table->boolean('isSynced')->default(false);
-            $table->boolean('newInsert')->default(true);
-            $table->unsignedBigInteger('updatedAt')->nullable();
+            $table->boolean('is_synced')->default(false);
+            $table->boolean('new_insert')->default(true);
+            $table->unsignedBigInteger('updated_at_ts')->nullable();
             $table->timestamps();
         });
     }

@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('rabies_records', function (Blueprint $table) {
             $table->id();
             $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
-            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
             $table->string('name')->nullable();
             $table->integer('age')->nullable();
             $table->string('sex')->nullable();

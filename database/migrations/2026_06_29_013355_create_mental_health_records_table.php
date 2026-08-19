@@ -15,7 +15,7 @@ return new class extends Migration
             // Room: @PrimaryKey(autoGenerate = true) int recordNo
             $table->id('recordNo'); 
             $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
-            $table->foreignId('profileId')->constrained('household_profiles')->onDelete('cascade');
+            $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
             
             $table->string('dateOfAssessment')->nullable(); // mm/dd/yy
             $table->string('familySerialNumber')->nullable();

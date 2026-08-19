@@ -185,8 +185,21 @@ export default function PhoPage({
                         barangays={barangays}
                     />
                 )}
-                {activeTab === 'm2' && <M28PAA />}
-                {activeTab === 'a1' && <A1AllPrograms />}
+                {activeTab === 'm2' && 
+                    <M28PAA 
+                        regions={regions}
+                        provinces={provinces}
+                        municipalities={municipalities}
+                        barangays={barangays}
+                    />
+                }
+                {activeTab === 'a1' && 
+                    <A1AllPrograms 
+                        regions={regions}
+                        provinces={provinces}
+                        municipalities={municipalities}
+                    />
+                }
             </div>
         </AppLayout>
     );
