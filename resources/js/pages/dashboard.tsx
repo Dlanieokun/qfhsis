@@ -40,9 +40,10 @@ interface ModuleCounts {
     child_immunization_school_records?: number;
     child_nutrition_records?: number;
     child_sick_records?: number;
-    family_planning_records?: number;
-    family_planning_follow_ups?: number;
-    family_planning_drop_outs?: number;
+    new_acceptor?: number;
+    other_acceptor?: number;
+    drop_outs?: number;
+    current_acceptors?: number;
     filariasis_registry_table?: number;
     schistosomiasis_registry?: number;
     sth_registry_records?: number;
@@ -122,9 +123,10 @@ const CATEGORIES: Category[] = [
         icon: Users,
         color: '#4338CA', // Indigo 700
         modules: [
-            { key: 'family_planning_records', label: 'Family Planning Records' },
-            { key: 'family_planning_follow_ups', label: 'Follow-Up Visits' },
-            { key: 'family_planning_drop_outs', label: 'Drop-Outs' },
+            { key: 'new_acceptor', label: 'New Acceptor' },
+            { key: 'other_acceptor', label: 'Other Acceptor' },
+            { key: 'drop_outs', label: 'Drop-Outs' },
+            { key: 'current_acceptors', label: 'Current Acceptors' },
         ],
     },
     {
@@ -230,7 +232,7 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                     <div className="relative bg-white border border-slate-200 rounded-xl px-6 py-8 overflow-hidden mb-8 shadow-sm">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#1B3B66] to-[#126A59]" />
                         <p className="text-[11px] font-semibold tracking-[0.25em] uppercase text-slate-500 font-['Courier_Prime']">
-                            Barangay Health Information System
+                            Quick Field Health Services and Information System
                         </p>
                         <h1 className="text-[28px] leading-tight font-bold tracking-tight font-['Zilla_Slab'] mt-2 pr-32 text-[#1B3B66]">
                             {auth.user.assigned_facility ? `${auth.user.assigned_facility} — System Overview` : 'Rural Health Unit — System Overview'}
@@ -246,14 +248,6 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                                 Online
                             </span>
                         </div>
-                    </div>
-
-                    {/* Summary row */}
-                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100 mb-10 overflow-hidden">
-                        <LedgerStat icon={ClipboardList} label="Submissions" value={totalSubmittedReports} unit="logs" color="#0F766E" />
-                        <LedgerStat icon={Baby} label="Pregnancies Tracked" value={totalMaternalCases} unit="cases" color="#BE185D" />
-                        <LedgerStat icon={Activity} label="Fully Immunized" value={totalImmunized} unit="children" color="#047857" />
-                        <LedgerStat icon={FileText} label="Program Modules" value={TOTAL_MODULES} unit={`across ${CATEGORIES.length}`} color="#4338CA" />
                     </div>
 
                     {/* Program directory */}
@@ -332,152 +326,6 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                                 </div>
                             </DashboardCard>
                         </div>
-                    </div>
-
-                    {/* Forms and History Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                        <DashboardCard className="lg:col-span-1">
-                            <div className="flex items-center gap-2 font-bold text-[#1B3B66] font-['Zilla_Slab'] text-lg mb-6">
-                                <PlusCircle className="w-5 h-5 text-[#126A59]" />
-                                <h2>New Quarterly Entry</h2>
-                            </div>
-
-                            <form onSubmit={handleSubmit} className="space-y-5">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Year</label>
-                                        <input
-                                            type="text"
-                                            maxLength={4}
-                                            value={data.reporting_year}
-                                            onChange={(e) => setData('reporting_year', e.target.value)}
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition font-['Courier_Prime']"
-                                        />
-                                        {errors.reporting_year && <p className="text-pink-600 text-xs">{errors.reporting_year}</p>}
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Quarter</label>
-                                        <select
-                                            value={data.reporting_quarter}
-                                            onChange={(e) => setData('reporting_quarter', e.target.value)}
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition"
-                                        >
-                                            <option value="Q1">1st Quarter (Q1)</option>
-                                            <option value="Q2">2nd Quarter (Q2)</option>
-                                            <option value="Q3">3rd Quarter (Q3)</option>
-                                            <option value="Q4">4th Quarter (Q4)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Total Pregnant Tracked</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={data.total_pregnant_tracked}
-                                        onChange={(e) => setData('total_pregnant_tracked', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition font-['Courier_Prime']"
-                                    />
-                                    {errors.total_pregnant_tracked && <p className="text-pink-600 text-xs">{errors.total_pregnant_tracked}</p>}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Completed 4 ANC Visits</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={data.completed_4_anc_visits}
-                                        onChange={(e) => setData('completed_4_anc_visits', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition font-['Courier_Prime']"
-                                    />
-                                    {errors.completed_4_anc_visits && <p className="text-pink-600 text-xs">{errors.completed_4_anc_visits}</p>}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Fully Immunized Children (FIC)</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={data.fully_immunized_children}
-                                        onChange={(e) => setData('fully_immunized_children', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition font-['Courier_Prime']"
-                                    />
-                                    {errors.fully_immunized_children && <p className="text-pink-600 text-xs">{errors.fully_immunized_children}</p>}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Exclusive Breastfed Infants</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={data.infants_exclusive_breastfed}
-                                        onChange={(e) => setData('infants_exclusive_breastfed', parseInt(e.target.value) || 0)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#126A59] focus:ring-1 focus:ring-[#126A59] transition font-['Courier_Prime']"
-                                    />
-                                    {errors.infants_exclusive_breastfed && (
-                                        <p className="text-pink-600 text-xs">{errors.infants_exclusive_breastfed}</p>
-                                    )}
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    disabled={processing}
-                                    className="w-full inline-flex items-center justify-center px-4 py-3 text-sm font-semibold text-white bg-[#126A59] rounded-lg hover:bg-[#0E5446] disabled:bg-slate-300 disabled:text-slate-500 transition-colors mt-4 shadow-sm"
-                                >
-                                    {processing ? 'Filing Record…' : 'Submit Indicators'}
-                                </button>
-                            </form>
-                        </DashboardCard>
-
-                        <DashboardCard className="lg:col-span-2">
-                            <div className="flex items-center gap-2 font-bold text-[#1B3B66] font-['Zilla_Slab'] text-lg mb-6">
-                                <Activity className="w-5 h-5 text-[#126A59]" />
-                                <h2>Submitted Indicators History</h2>
-                            </div>
-
-                            {reports.length === 0 ? (
-                                <div className="py-12 text-center text-slate-500 text-sm space-y-2 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
-                                    <FileText className="w-10 h-10 mx-auto text-slate-400 mb-3" />
-                                    <p className="font-medium text-slate-700 text-base">No logs on record</p>
-                                    <p className="text-xs">Submit your facility's quarterly matrix via the panel on the left.</p>
-                                </div>
-                            ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse text-sm text-slate-700">
-                                        <thead>
-                                            <tr className="text-slate-500 font-bold uppercase border-b border-slate-200 font-['Courier_Prime'] text-xs">
-                                                <th className="px-4 py-3 bg-slate-50 rounded-tl-lg">Period</th>
-                                                <th className="px-4 py-3 bg-slate-50">Maternal Tracker</th>
-                                                <th className="px-4 py-3 bg-slate-50">Immunized Base</th>
-                                                <th className="px-4 py-3 bg-slate-50">Excl. Breastfed</th>
-                                                <th className="px-4 py-3 bg-slate-50 rounded-tr-lg">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {reports.map((report) => (
-                                                <tr key={report.id} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="px-4 py-4 font-semibold text-slate-900 font-['Courier_Prime']">
-                                                        FY {report.reporting_year} — {report.reporting_quarter}
-                                                    </td>
-                                                    <td className="px-4 py-4 font-['Courier_Prime']">
-                                                        {report.total_pregnant_tracked}{' '}
-                                                        <span className="text-slate-500 text-[11px] ml-1">({report.completed_4_anc_visits} ANC)</span>
-                                                    </td>
-                                                    <td className="px-4 py-4 font-medium font-['Courier_Prime']">{report.fully_immunized_children}</td>
-                                                    <td className="px-4 py-4 font-medium font-['Courier_Prime']">{report.infants_exclusive_breastfed}</td>
-                                                    <td className="px-4 py-4">
-                                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-[#0F766E] border border-teal-200 uppercase tracking-wide">
-                                                            {report.status}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </DashboardCard>
                     </div>
                 </div>
             </div>

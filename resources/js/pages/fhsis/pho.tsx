@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Head, Link } from '@inertiajs/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 
@@ -113,93 +114,99 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function PhoPage({
-    // familyPlanning, maternalCare, childCare,
-    // oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
     regions = [], provinces = [], municipalities = [], barangays = []
 }: PhoPageProps) {
     const [activeTab, setActiveTab] = useState<'m1' | 'q1' | 'm2' | 'a1'>('m1');
+
+    const tabs = [
+        { id: 'm1', label: 'M1_All Programs' },
+        { id: 'q1', label: 'Q1_All Programs' },
+        { id: 'm2', label: 'M2_8PAA' },
+        { id: 'a1', label: 'A1_All Program' },
+    ] as const;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="PHO Reports" />
 
-            <nav className="bg-white border-b border-gray-200 p-4 shadow-sm">
-                <div className="max-w-7xl mx-auto flex justify-center gap-6">
-                    <button
-                        onClick={() => setActiveTab('m1')}
-                        className={`px-3 py-2 font-medium transition ${
-                            activeTab === 'm1'
-                                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                                : 'text-gray-600 hover:text-blue-600'
-                        }`}
-                    >
-                        M1_All Programs
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('q1')}
-                        className={`px-3 py-2 font-medium transition ${
-                            activeTab === 'q1'
-                                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                                : 'text-gray-600 hover:text-blue-600'
-                        }`}
-                    >
-                        Q1_All Programs
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('m2')}
-                        className={`px-3 py-2 font-medium transition ${
-                            activeTab === 'm2'
-                                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                                : 'text-gray-600 hover:text-blue-600'
-                        }`}
-                    >
-                        M2_8PAA
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('a1')}
-                        className={`px-3 py-2 font-medium transition ${
-                            activeTab === 'a1'
-                                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                                : 'text-gray-600 hover:text-blue-600'
-                        }`}
-                    >
-                        A1_All Program
-                    </button>
-                </div>
-            </nav>
+            <div className="max-w-7xl mx-auto px-6 pt-6">
+                <motion.nav 
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                    className="flex justify-center p-2 rounded-2xl shadow-lg overflow-hidden"
+                    style={{
+                        background: 'linear-gradient(160deg, #0f2d6b 0%, #1a5276 25%, #117a65 60%, #0e6655 100%)',
+                    }}
+                >
+                    <div className="flex gap-2 w-full justify-center">
+                        {tabs.map((tab) => {
+                            const isActive = activeTab === tab.id;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={[
+                                        'px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:scale-[1.02]',
+                                        isActive
+                                            ? 'text-white'
+                                            : 'text-white/70 hover:bg-white/10 hover:text-white',
+                                    ].join(' ')}
+                                    style={isActive ? {
+                                        background: 'linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.08) 100%)',
+                                        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)',
+                                    } : {}}
+                                >
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </motion.nav>
+            </div>
 
             <div className="mt-6 max-w-7xl mx-auto px-6 pb-12">
-                {activeTab === 'm1' && (
-                    <M1AllPrograms
-                        regions={regions}
-                        provinces={provinces}
-                        municipalities={municipalities}
-                        barangays={barangays}
-                    />
-                )}
-                {activeTab === 'q1' && (
-                    <Q1AllPrograms
-                        regions={regions}
-                        provinces={provinces}
-                        municipalities={municipalities}
-                        barangays={barangays}
-                    />
-                )}
-                {activeTab === 'm2' && 
-                    <M28PAA 
-                        regions={regions}
-                        provinces={provinces}
-                        municipalities={municipalities}
-                        barangays={barangays}
-                    />
-                }
-                {activeTab === 'a1' && 
-                    <A1AllPrograms 
-                        regions={regions}
-                        provinces={provinces}
-                        municipalities={municipalities}
-                    />
-                }
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={activeTab}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                    >
+                        {activeTab === 'm1' && (
+                            <M1AllPrograms
+                                regions={regions}
+                                provinces={provinces}
+                                municipalities={municipalities}
+                                barangays={barangays}
+                            />
+                        )}
+                        {activeTab === 'q1' && (
+                            <Q1AllPrograms
+                                regions={regions}
+                                provinces={provinces}
+                                municipalities={municipalities}
+                                barangays={barangays}
+                            />
+                        )}
+                        {activeTab === 'm2' && 
+                            <M28PAA 
+                                regions={regions}
+                                provinces={provinces}
+                                municipalities={municipalities}
+                                barangays={barangays}
+                            />
+                        }
+                        {activeTab === 'a1' && 
+                            <A1AllPrograms 
+                                regions={regions}
+                                provinces={provinces}
+                                municipalities={municipalities}
+                            />
+                        }
+                    </motion.div>
+                </AnimatePresence>
             </div>
         </AppLayout>
     );
