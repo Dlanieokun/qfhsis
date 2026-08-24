@@ -59,9 +59,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
     
     // Fallback default routing context handler
-    Route::get('dashboard', function () {
-        return redirect()->route('fhsis.dashboard');
-    })->name('dashboard');
+    // Route::get('dashboard', function () {
+    //     return redirect()->route('fhsis.dashboard');
+    // })->name('dashboard');
 
     // User Management Routes
     Route::get('/fhsis/users', [UserController::class, 'index'])->name('users.index');
@@ -74,6 +74,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');
     Route::get('/fhsis/reports/export-q1-all', [PublicNurseController::class, 'q1AllDownload'])->name('fhsis.reports.q1AllDownload');
     Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
+
+    Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
+        ->name('dashboard');
 });
 
 require __DIR__.'/settings.php';

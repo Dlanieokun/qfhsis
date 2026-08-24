@@ -164,6 +164,25 @@ export default function AppSidebar() {
                         );
                     })}
                 </motion.nav>
+                
+                {/* ── Province Footer ──────────────────────────────────────── */}
+                <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.8 }}
+                    className="border-t border-white/10 px-4 py-4 text-center"
+                >
+                    <div className="flex flex-col items-center gap-2">
+                        <img 
+                            src="/qfhsis/public/leyte_provl_logo.jpg" 
+                            alt="Province of Leyte" 
+                            className="h-14 w-14 object-contain rounded-full shadow-lg"
+                        />
+                        <span className="text-xs font-semibold text-white/90">
+                            Province of Leyte
+                        </span>
+                    </div>
+                </motion.div>
 
                 {/* ── User footer ──────────────────────────────────────────── */}
                 <motion.div 
@@ -233,6 +252,7 @@ export default function AppSidebar() {
                         </div>
                     </div>
                 </motion.div>
+
             </motion.aside>
 
             {/* ── Change Password Modal ────────────────────────────────────── */}

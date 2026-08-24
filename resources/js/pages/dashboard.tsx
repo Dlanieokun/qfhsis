@@ -170,25 +170,37 @@ const CATEGORIES: Category[] = [
 
 const TOTAL_MODULES = CATEGORIES.reduce((sum, c) => sum + c.modules.length, 0);
 
-const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'FHSIS Dashboard',
-        href: '/qfhsis/public/fhsis/dashboard',
-    },
-];
+/**
+ * DashboardCard Component
+ * Reusable card component for dashboard sections
+ */
+interface DashboardCardProps {
+    className?: string;
+    style?: React.CSSProperties;
+    children: React.ReactNode;
+}
 
-/** Modern Light UI Card */
-function DashboardCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function DashboardCard({ className = '', style, children }: DashboardCardProps) {
     return (
-        <div className={`bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden ${className}`}>
-            <div className="p-6">
-                {children}
-            </div>
+        <div 
+            className={`bg-white rounded-lg border border-slate-200 p-6 shadow-sm ${className}`} 
+            style={style}
+        >
+            {children}
         </div>
     );
 }
 
+/**
+ * Main Dashboard Component
+ */
 export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Props) {
+    // Breadcrumbs for navigation
+    const breadcrumbs: BreadcrumbItem[] = [
+        { label: 'Home', href: '/dashboard' },
+        { label: 'FHSIS Dashboard' },
+    ];
+
     const [activeCategory, setActiveCategory] = useState('maternal_child');
 
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -206,7 +218,8 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        post('/qfhsis/public/fhsis/reports', {
+        // Update route to match your web.php configuration
+        post('/fhsis/reports', {
             onSuccess: () => reset(),
         });
     };
@@ -333,6 +346,9 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
     );
 }
 
+/**
+ * Ledger Statistics Card Component
+ */
 function LedgerStat({
     icon: Icon,
     label,
