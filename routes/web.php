@@ -16,7 +16,7 @@ Route::get('/', function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     
     // Core Dashboard Workspace View
-    Route::get('/fhsis/dashboard', [FhsisReportController::class, 'index'])->name('fhsis.dashboard');
+    // Route::get('/fhsis/dashboard', [FhsisReportController::class, 'index'])->name('fhsis.dashboard');
     
     // Process New Indicator Submissions
     Route::post('/fhsis/reports', [FhsisReportController::class, 'store'])->name('fhsis.reports.store');
@@ -75,7 +75,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/reports/export-q1-all', [PublicNurseController::class, 'q1AllDownload'])->name('fhsis.reports.q1AllDownload');
     Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
 
-    Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
+    Route::get('/fhsis/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
         ->name('dashboard');
 });
 
