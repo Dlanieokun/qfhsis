@@ -216,7 +216,6 @@ class PhoReportController extends Controller
 
         // 3. Bucket Templates
         $ageBracketEmpty = ['10-14' => 0, '15-19' => 0, '20-49' => 0, 'total' => 0];
-        $sexBracketEmpty = ['male' => 0, 'female' => 0, 'total' => 0];
 
         $prenatalKeys = [
             'anc8Completed', 'nutritionAssessed', 'nutritionNormal', 'nutritionLow', 'nutritionHigh',
@@ -241,9 +240,12 @@ class PhoReportController extends Controller
             'outcomeFullTerm', 'outcomePreTerm', 'outcomeFetalDeath', 'outcomeAbortion',
             'birthWeightNormal', 'birthWeightLow', 'birthWeightUnknown',
         ];
+        // Intrapartum/newborn indicators are now bucketed by the MOTHER's
+        // age bracket (10-14/15-19/20-49/total), matching the rest of
+        // Section B, instead of by the newborn's sex.
         $intrapartum = [];
         foreach ($intrapartumKeys as $k) {
-            $intrapartum[$k] = $sexBracketEmpty;
+            $intrapartum[$k] = $ageBracketEmpty;
         }
 
         $postpartumKeys = ['pnc4Completed', 'ifaCompleted', 'vitACompleted', 'bpMeasured', 'highBpOrDanger', 'referred', 'pnc4A1', 'pnc4A2', 'pnc41B', 'pnc4B1', 'pnc4B2', 'pnc4B3'];
@@ -445,66 +447,60 @@ class PhoReportController extends Controller
                 }
             }
 
-            // ── Intrapartum / Newborn Care, tallied by newborn sex (intrapartum_records) ──
+            // ── Intrapartum / Newborn Care, tallied by the MOTHER's age bracket (intrapartum_records) ──
             if ($ip = $record->intrapartum) {
-                $sex = strtolower((string) $ip->sex) === 'male'
-                    ? 'male'
-                    : (strtolower((string) $ip->sex) === 'female' ? 'female' : null);
-
-                $bumpSex = function (string $key) use (&$intrapartum, $sex) {
+                $bumpAge = function (string $key) use (&$intrapartum, $bracket) {
+                    $intrapartum[$key][$bracket]++;
                     $intrapartum[$key]['total']++;
-                    if ($sex) {
-                        $intrapartum[$key][$sex]++;
-                    }
                 };
 
-                $bumpSex('totalDeliveries');
+                $bumpAge('totalDeliveries');
 
                 if ($this->contains($ip->attendantAtBirth, 'physician')) {
-                    $bumpSex('attendantPhysician');
+                    $bumpAge('attendantPhysician');
                 }
                 if ($this->contains($ip->attendantAtBirth, 'nurse')) {
-                    $bumpSex('attendantNurse');
+                    $bumpAge('attendantNurse');
                 }
                 if ($this->contains($ip->attendantAtBirth, 'midwife')) {
-                    $bumpSex('attendantMidwife');
+                    $bumpAge('attendantMidwife');
                 }
 
                 if ($this->contains($ip->placeOfDelivery, 'public')) {
-                    $bumpSex('facilityPublic');
+                    $bumpAge('facilityPublic');
                 }
                 if ($this->contains($ip->placeOfDelivery, 'private')) {
-                    $bumpSex('facilityPrivate');
+                    $bumpAge('facilityPrivate');
                 }
 
                 if ($this->contains($ip->deliveryType, 'vaginal')) {
-                    $bumpSex('deliveryVaginal');
+                    $bumpAge('deliveryVaginal');
                 }
                 if ($this->contains($ip->deliveryType, 'cesarean') || $this->contains($ip->deliveryType, 'caesarean')) {
-                    $bumpSex('deliveryCesarean');
+                    $bumpAge('deliveryCesarean');
                 }
                 if ($this->contains($ip->deliveryType, 'combined')) {
-                    $bumpSex('deliveryCombined');
+                    $bumpAge('deliveryCombined');
                 }
 
                 if ($this->contains($ip->deliveryOutcome, 'pre-term') || $this->contains($ip->deliveryOutcome, 'preterm')) {
-                    $bumpSex('outcomePreTerm');
+                    $bumpAge('outcomePreTerm');
                 } elseif ($this->contains($ip->deliveryOutcome, 'full') || $this->contains($ip->deliveryOutcome, 'term')) {
-                    $bumpSex('outcomeFullTerm');
+                    $bumpAge('outcomeFullTerm');
                 }
                 if ($this->contains($ip->deliveryOutcome, 'fetal death') || $this->contains($ip->deliveryOutcome, 'stillbirth')) {
-                    $bumpSex('outcomeFetalDeath');
+                    $bumpAge('outcomeFetalDeath');
                 }
                 if ($this->contains($ip->deliveryOutcome, 'abortion') || $this->contains($ip->deliveryOutcome, 'miscarriage')) {
-                    $bumpSex('outcomeAbortion');
+                    $bumpAge('outcomeAbortion');
                 }
 
                 if ($this->contains($ip->weightClassification, 'normal')) {
-                    $bumpSex('birthWeightNormal');
+                    $bumpAge('birthWeightNormal');
                 } elseif ($this->contains($ip->weightClassification, 'low')) {
-                    $bumpSex('birthWeightLow');
+                    $bumpAge('birthWeightLow');
                 } else {
-                    $bumpSex('birthWeightUnknown');
+                    $bumpAge('birthWeightUnknown');
                 }
             }
         }
@@ -542,6 +538,7 @@ class PhoReportController extends Controller
         $period          = $this->resolveReportPeriod($request);
         $startOfSelected = $period['start'];
         $endOfSelected   = $period['end'];
+        $year            = $period['year'];
 
         $location = $this->resolveLocationFilters($request);
 
@@ -602,8 +599,11 @@ class PhoReportController extends Controller
                 }
             }
 
-            // CPAB — assessed at registration/delivery, so it belongs to the birth cohort.
-            if ($this->truthy($rec->td2Mother ?? null) || $this->truthy($rec->td3To5Mother ?? null)) {
+            // CPAB — Children Protected At Birth. Only count newborns whose
+            // registration falls within the reporting month AND who belong to
+            // the current-year cohort (born this year). This prevents a child
+            // registered last year from being double-counted under A.1.
+            if ($isCurrentYearCohort && ($this->truthy($rec->td2Mother ?? null) || $this->truthy($rec->td3To5Mother ?? null))) {
                 $regDate = $this->parseDateOrNull($rec->registrationDate ?? null);
                 if ($regDate && $regDate->between($startOfSelected, $endOfSelected)) {
                     $bump($imm0_11, 'cpab', $rec->sex ?? null);
@@ -612,12 +612,15 @@ class PhoReportController extends Controller
 
             // FIC / CIC completion — tallied under the previous-year table (A.2)
             // per the FHSIS M1 form layout.
+            // Gate on the completion DATE being recorded, not on the ficBcg/cicBcg
+            // checkbox: a child whose BCG field was left blank but whose FIC date was
+            // stamped would be silently dropped by the old ficBcg truthy check.
             $ficDate = $this->parseDateOrNull($rec->ficDate ?? null);
-            if ($this->truthy($rec->ficBcg ?? null) && $ficDate && $ficDate->between($startOfSelected, $endOfSelected)) {
+            if ($ficDate && $ficDate->between($startOfSelected, $endOfSelected)) {
                 $bump($immPrev, 'fic', $rec->sex ?? null);
             }
             $cicDate = $this->parseDateOrNull($rec->cicDate ?? null);
-            if ($this->truthy($rec->cicBcg ?? null) && $cicDate && $cicDate->between($startOfSelected, $endOfSelected)) {
+            if ($cicDate && $cicDate->between($startOfSelected, $endOfSelected)) {
                 $bump($immPrev, 'cic', $rec->sex ?? null);
             }
         }
@@ -630,9 +633,12 @@ class PhoReportController extends Controller
             ->get();
 
         foreach ($schoolRecords as $rec) {
-            $grade = strtolower((string) ($rec->gradeLevel ?? ''));
-            $isGrade1 = str_contains($grade, '1');
-            $isGrade7 = str_contains($grade, '7');
+            $grade = strtolower(trim((string) ($rec->gradeLevel ?? '')));
+            // Use word-boundary regex to avoid false positives:
+            // str_contains('grade 11', '1') === true, which would incorrectly
+            // classify Grade 11 as Grade 1. Same issue applies to Grade 7 vs 17.
+            $isGrade1 = (bool) preg_match('/\bgrade\s*1\b/', $grade) || $grade === '1';
+            $isGrade7 = (bool) preg_match('/\bgrade\s*7\b/', $grade) || $grade === '7';
 
             $tdDate = $this->parseDateOrNull($rec->tdDate ?? null);
             if ($tdDate && $tdDate->between($startOfSelected, $endOfSelected)) {
@@ -711,7 +717,13 @@ class PhoReportController extends Controller
                 $nutrition2[$key]['total'] += $n;
                 if ($sk = $this->sexKey($sex)) $nutrition2[$key][$sk] += $n;
             };
-            $bumpN('seen0to59', 1); // one row = one child seen this month
+            // seen0to59: only count children who are actually 0-59 months old.
+            // Without this guard every nutrition record bumped the counter regardless
+            // of age, inflating the total for any outlier records outside that window.
+            $nutAgeMonths = is_numeric($rec->ageMonths ?? null) ? (int) $rec->ageMonths : null;
+            if ($nutAgeMonths !== null && $nutAgeMonths >= 0 && $nutAgeMonths <= 59) {
+                $bumpN('seen0to59', 1);
+            }
             $bumpN('mamIdentified', (int) ($rec->mamIdentified ?? 0));
             $bumpN('samIdentified', (int) ($rec->samIdentified ?? 0));
             $bumpN('mamEnrolled', (int) ($rec->mamEnrolled ?? 0));
@@ -752,7 +764,9 @@ class PhoReportController extends Controller
                     $bump($mgmtSick, 'vitA12to59Sick', $sex);
                 }
             }
-            if ($this->truthy($rec->diagnosisPersistentDiarrhea ?? null)) {
+            // Diarrhea indicator is "0-59 months old" — guard age before the pneumonia block.
+            $is0to59 = $ageMonths !== null && $ageMonths >= 0 && $ageMonths <= 59;
+            if ($is0to59 && $this->truthy($rec->diagnosisPersistentDiarrhea ?? null)) {
                 $bump($mgmtSick, 'diarrhea0to59Seen', $sex);
                 if ($this->truthy($rec->orsOnly ?? null)) {
                     $bump($mgmtSick, 'orsOnly', $sex);
@@ -761,7 +775,7 @@ class PhoReportController extends Controller
                     $bump($mgmtSick, 'orsZinc', $sex);
                 }
             }
-            if (!empty($rec->pneumoniaDateGiven)) {
+            if ($is0to59 && !empty($rec->pneumoniaDateGiven)) {
                 $bump($mgmtSick, 'pneumonia0to59Seen', $sex);
                 $amoxDrops = $this->truthy($rec->amoxicillinDrops ?? null);
                 $amoxClav  = $this->truthy($rec->amoxicillinClavulanate ?? null);

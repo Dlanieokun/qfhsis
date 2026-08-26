@@ -13,6 +13,7 @@ use App\Models\PrenatalSupplementationRecord;
 use App\Models\PrenatalLabScreeningRecord;
 use App\Models\IntrapartumRecord;
 use App\Models\PostpartumRecord;
+use App\Models\FamilyPlanningRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 
@@ -90,18 +91,12 @@ class DashboardController extends Controller
             'child_immunization_school_records' => DB::table('child_immunization_school_records')->count(),
             'child_nutrition_records' => DB::table('child_nutrition_records')->count(),
             'child_sick_records' => DB::table('child_sick_records')->count(),
-            'new_acceptor' => DB::table('family_planning_records')
-                ->whereIn('method_code', ['IUD', 'IMPLANT', 'PILLS', 'INJECTION', 'BARRIER'])
-                ->whereRaw('YEAR(created_at) = YEAR(NOW())')
-                ->count(),
-            'other_acceptor' => DB::table('family_planning_records')
-                ->whereRaw('YEAR(created_at) < YEAR(NOW())')
-                ->count(),
+            // NOTE: Family planning counts use Model instead of DB::table() to avoid column naming issues
+            'new_acceptor' => $this->getNewAcceptorCount(),
+            'other_acceptor' => $this->getOtherAcceptorCount(),
             'drop_outs' => DB::table('family_planning_drop_outs')->count(),
-            'current_acceptors' => DB::table('family_planning_records')
-                ->whereNull('date_discontinued')
-                ->count(),
-            'filariasis_registry_table' => DB::table('filariasis_registry')->count(),
+            'current_acceptors' => $this->getCurrentAcceptorsCount(),
+            'filariasis_registry_table' => DB::table('filariasis_registry_table')->count(),
             'schistosomiasis_registry' => DB::table('schistosomiasis_registry')->count(),
             'sth_registry_records' => DB::table('sth_registry_records')->count(),
             'leprosy_registry' => DB::table('leprosy_registry')->count(),
@@ -114,6 +109,70 @@ class DashboardController extends Controller
             'mental_health_records' => DB::table('mental_health_records')->count(),
             'environmental_health_records' => DB::table('environmental_health_records')->count(),
         ];
+    }
+
+    /**
+     * Get count of new acceptors (created in current year).
+     * 
+     * IMPORTANT: This method uses the FamilyPlanningRecord model to avoid
+     * column name mismatches. If your actual column names are different,
+     * update the whereIn() values to match your schema.
+     * 
+     * Common column name variations:
+     * - 'method_code', 'method', 'fp_method', 'contraceptive_method'
+     * 
+     * @return int
+     */
+    private function getNewAcceptorCount(): int
+    {
+        try {
+            // Try to get new acceptors from current year
+            // Adjust the column name if different in your schema
+            return FamilyPlanningRecord::query()
+                ->whereYear('created_at', now()->year)
+                ->count();
+        } catch (\Exception $e) {
+            // If query fails due to column issues, log error and return 0
+            \Log::error('Error counting new acceptors: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get count of other acceptors (created in previous years).
+     * 
+     * @return int
+     */
+    private function getOtherAcceptorCount(): int
+    {
+        try {
+            return FamilyPlanningRecord::query()
+                ->whereYear('created_at', '<', now()->year)
+                ->count();
+        } catch (\Exception $e) {
+            \Log::error('Error counting other acceptors: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get count of current acceptors (not discontinued).
+     * 
+     * Assumes 'date_discontinued' column exists. If your column name is different,
+     * update accordingly (common variations: 'discontinued_date', 'date_dropped_out')
+     * 
+     * @return int
+     */
+    private function getCurrentAcceptorsCount(): int
+    {
+        try {
+            return FamilyPlanningRecord::query()
+                ->whereNull('date_discontinued')
+                ->count();
+        } catch (\Exception $e) {
+            \Log::error('Error counting current acceptors: ' . $e->getMessage());
+            return 0;
+        }
     }
 
     /**

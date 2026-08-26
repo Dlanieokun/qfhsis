@@ -40,7 +40,9 @@ interface SexBrackets {
 
 interface MaternalCareData {
   prenatal: Record<string, AgeBrackets>;
-  intrapartum: Record<string, SexBrackets>;
+  // Intrapartum/newborn indicators are bucketed by the MOTHER's age
+  // bracket (10-14/15-19/20-49/total), same as prenatal and postpartum.
+  intrapartum: Record<string, AgeBrackets>;
   postpartum: Record<string, AgeBrackets>;
 }
 
@@ -326,19 +328,20 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
 };
 
 // ─── SECTION B: Maternal Care ─────────────────────────────────────────────────
-const sumSexBrackets = (
-  data: Record<string, SexBrackets> | undefined,
+const sumAgeBrackets = (
+  data: Record<string, AgeBrackets> | undefined,
   keys: string[],
-): SexBrackets | undefined => {
+): AgeBrackets | undefined => {
   if (!data) return undefined;
-  const result: SexBrackets = { male: 0, female: 0, total: 0 };
+  const result: AgeBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
   let found = false;
   keys.forEach((k) => {
     const b = data[k];
     if (b) {
       found = true;
-      result.male += b.male;
-      result.female += b.female;
+      result['10-14'] += b['10-14'];
+      result['15-19'] += b['15-19'];
+      result['20-49'] += b['20-49'];
       result.total += b.total;
     }
   });
@@ -350,15 +353,6 @@ const AgeInputsFromData = ({ data }: { data?: AgeBrackets }) => (
     <InputCell value={data?.['10-14']} />
     <InputCell value={data?.['15-19']} />
     <InputCell value={data?.['20-49']} />
-    <InputCell value={data?.total} />
-  </>
-);
-
-const SexInputsAsFour = ({ data }: { data?: SexBrackets }) => (
-  <>
-    <InputCell value={data?.male} />
-    <InputCell value={data?.female} />
-    <InputCell />
     <InputCell value={data?.total} />
   </>
 );
@@ -517,24 +511,30 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
 
           {/* Intrapartum */}
           <tr className="bg-gray-100">
-            <Th className="text-left" colSpan={6}>INTRAPARTUM AND NEWBORN CARE — Indicators / 10-14 / 15-19 / 20-49 / TOTAL / Remarks</Th>
-            <Th className="text-left" colSpan={6}>Indicators / 10-14 | 15-19 | 20-49 | TOTAL | Remarks</Th>
+            <Th className="text-left" colSpan={6}>INTRAPARTUM AND NEWBORN CARE</Th>
+            <Th className="text-left" colSpan={6}>&nbsp;</Th>
+          </tr>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
           </tr>
           {Array.from({ length: maxIntra }).map((_, i) => {
             const [lLabel, lIndent] = intraLeft[i] ?? ['', 1];
             const [rLabel, rIndent] = intraRight[i] ?? ['', 1];
             const lKeys = intraLeftValueKeys[i];
             const rKeys = intraRightValueKeys[i];
-            const lData = Array.isArray(lKeys) ? sumSexBrackets(intrapartum, lKeys) : intrapartum?.[lKeys ?? ''];
-            const rData = Array.isArray(rKeys) ? sumSexBrackets(intrapartum, rKeys) : intrapartum?.[rKeys ?? ''];
+            const lData = Array.isArray(lKeys) ? sumAgeBrackets(intrapartum, lKeys) : intrapartum?.[lKeys ?? ''];
+            const rData = Array.isArray(rKeys) ? sumAgeBrackets(intrapartum, rKeys) : intrapartum?.[rKeys ?? ''];
             return (
               <tr key={i}>
                 <Td className={`w-1/4 ${indentClass(lIndent)}`}>{lLabel}</Td>
-                {lLabel ? <><SexInputsAsFour data={lData} /><InputCell /></> :
+                {lLabel ? <><AgeInputsFromData data={lData} /><InputCell /></> :
                   <td colSpan={5} className="border border-gray-400"></td>}
                 <Td className={`w-1/4 ${indentClass(rIndent)}`}>{rLabel}</Td>
-                {rLabel ? <><SexInputsAsFour data={rData} /><InputCell /></> :
-                  <td colSpan={5} className="border border-gray-400"></td>}
+                {rLabel ? <><AgeInputsFromData data={rData} /><InputCell /></> :
+                <td colSpan={5} className="border border-gray-400"></td>}
               </tr>
             );
           })}
