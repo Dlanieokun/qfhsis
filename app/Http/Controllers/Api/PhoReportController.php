@@ -8,6 +8,21 @@ use App\Models\HouseholdProfile;
 use App\Models\FamilyPlanningRecord;
 use App\Models\FamilyPlanningDropOut;
 use App\Models\MaternalCareRecord;
+use App\Models\ChildImmunizationRecord;
+use App\Models\ChildImmunizationSchoolRecord;
+use App\Models\ChildNutritionRecord;
+use App\Models\ChildSickRecord;
+use App\Models\OralHealthCare;
+use App\Models\PhilpenRiskAssessment;
+use App\Models\EyesScreening;
+use App\Models\MentalHealthRecord;
+use App\Models\CervicalCancerScreening;
+use App\Models\EnvironmentalHealthRecord;
+use App\Models\FilariasisRegistry;
+use App\Models\RabiesRecord;
+use App\Models\SchistosomiasisRegistry;
+use App\Models\SthRegistryRecord;
+use App\Models\LeprosyRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -561,11 +576,12 @@ class PhoReportController extends Controller
         $mgmtSick = [];
 
         // ── A.1 / A.2 Immunization (child_immunization_records) ─────────────
-        $immRecords = DB::table('child_immunization_records')
-            ->when(true, function ($q) use ($location) {
-                $this->applyProfileIdLocationFilter($q, $location);
-            })
+        $immRecords = ChildImmunizationRecord::query()
+            // ->when(true, function ($q) use ($location) {
+            //     $this->applyProfileIdLocationFilter($q, $location);
+            // })
             ->get();
+
 
         // Maps DB date column -> reporting key. CPAB/FIC/CIC have no per-dose age
         // cohort of their own, so they are always attributed to the child's own record.
@@ -599,6 +615,9 @@ class PhoReportController extends Controller
                 }
             }
 
+            
+            return response()->json($immRecords, 200);
+
             // CPAB — Children Protected At Birth. Only count newborns whose
             // registration falls within the reporting month AND who belong to
             // the current-year cohort (born this year). This prevents a child
@@ -626,7 +645,7 @@ class PhoReportController extends Controller
         }
 
         // ── A.3 School / Community Based Immunization (child_immunization_school_records) ──
-        $schoolRecords = DB::table('child_immunization_school_records')
+        $schoolRecords = ChildImmunizationSchoolRecord::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location);
             })
@@ -666,7 +685,7 @@ class PhoReportController extends Controller
         }
 
         // ── Nutrition (child_nutrition_records) ──────────────────────────────
-        $nutritionRecords = DB::table('child_nutrition_records')
+        $nutritionRecords = ChildNutritionRecord::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location);
             })
@@ -739,7 +758,7 @@ class PhoReportController extends Controller
         }
 
         // ── Management of Sick Children (child_sick_records — no location link) ──
-        $sickRecords = DB::table('child_sick_records')
+        $sickRecords = ChildSickRecord::query()
             ->get()
             ->filter(function ($rec) use ($startOfSelected, $endOfSelected) {
                 $d = $this->parseDateOrNull($rec->dateRegistration ?? null);
@@ -841,7 +860,7 @@ class PhoReportController extends Controller
             }
         };
 
-        $records = DB::table('oral_health_care')
+        $records = OralHealthCare::query()
             ->get()
             ->filter(function ($rec) use ($startOfSelected, $endOfSelected) {
                 $d = $this->parseDateOrNull($rec->date_of_visit ?? null);
@@ -934,7 +953,7 @@ class PhoReportController extends Controller
         $dm60plus = $sexEmpty;
 
         // ── E1-E3: PhilPEN risk assessments / CVD / DM (philpen_risk_assessments) ──
-        $philpenRecords = DB::table('philpen_risk_assessments')
+        $philpenRecords = PhilpenRiskAssessment::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location, 'profile_id');
             })
@@ -991,7 +1010,7 @@ class PhoReportController extends Controller
         $blindnessKeys = ['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus', 'identified', 'referred'];
         $blindness = array_fill_keys($blindnessKeys, $sexEmpty);
 
-        $eyeRecords = DB::table('eyes_screenings')
+        $eyeRecords = EyesScreening::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location, 'profile_id');
             })
@@ -1028,7 +1047,7 @@ class PhoReportController extends Controller
         $mentalHealthKeys = ['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus'];
         $mentalHealth = array_fill_keys($mentalHealthKeys, $sexEmpty);
 
-        $mentalRecords = DB::table('mental_health_records')
+        $mentalRecords = MentalHealthRecord::query()
             ->get()
             ->filter(function ($rec) use ($startOfSelected, $endOfSelected) {
                 $d = $this->parseDateOrNull($rec->dateOfAssessment ?? null);
@@ -1058,7 +1077,7 @@ class PhoReportController extends Controller
         $breast = ['seen' => 0, 'highRiskOrSymptomatic' => 0, 'providedCbe' => 0, 'providedMammogram' => 0,
                    'remarkableCbe' => 0, 'remarkableMammogram' => 0, 'linkedToCare' => 0, 'asymptomaticScreened' => 0];
 
-        $cancerRecords = DB::table('cervical_cancer_screenings')
+        $cancerRecords = CervicalCancerScreening::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location, 'profile_id');
             })
@@ -1134,7 +1153,7 @@ class PhoReportController extends Controller
      */
     public function environmentalHealth(Request $request)
     {
-        $records = DB::table('environmental_health_records')->get();
+        $records = EnvironmentalHealthRecord::query()->get();
 
         $levelI = $levelII = $levelIII = $safelyManagedWater = 0;
         $pourFlushSeptic = $pourFlushSewer = $vip = $basicSanitationFacility = $safelyManagedSanitation = 0;
@@ -1199,7 +1218,7 @@ class PhoReportController extends Controller
 
         // ── A. Filariasis ─────────────────────────────────────────────────
         $filariasis = [];
-        $filRecords = DB::table('filariasis_registry_table')
+        $filRecords = FilariasisRegistry::query()
             ->get()
             ->filter(fn ($r) => $inPeriod($r->date_of_registration ?? null));
 
@@ -1226,7 +1245,7 @@ class PhoReportController extends Controller
 
         // ── B. Rabies ─────────────────────────────────────────────────────
         $rabies = ['animalBites' => $sexEmpty, 'rabiesDeaths' => $sexEmpty];
-        $rabiesRecords = DB::table('rabies_records')
+        $rabiesRecords = RabiesRecord::query()
             ->get()
             ->filter(fn ($r) => $inPeriod($r->date_of_bite ?? null));
 
@@ -1241,7 +1260,7 @@ class PhoReportController extends Controller
 
         // ── C. Schistosomiasis ────────────────────────────────────────────
         $schistosomiasis = [];
-        $schRecords = DB::table('schistosomiasis_registry')
+        $schRecords = SchistosomiasisRegistry::query()
             ->get()
             ->filter(fn ($r) => $inPeriod($r->date_of_registration ?? null));
 
@@ -1261,7 +1280,7 @@ class PhoReportController extends Controller
 
         // ── D. Soil-Transmitted Helminthiasis (STH) ──────────────────────
         $sth = [];
-        $sthRecords = DB::table('sth_registry_records')
+        $sthRecords = SthRegistryRecord::query()
             ->get()
             ->filter(fn ($r) => $inPeriod($r->date_of_registration ?? null));
 
@@ -1293,7 +1312,7 @@ class PhoReportController extends Controller
 
         // ── E. Leprosy ────────────────────────────────────────────────────
         $leprosy = [];
-        $lepRecords = DB::table('leprosy_registry')
+        $lepRecords = LeprosyRegistry::query()
             ->get()
             ->filter(fn ($r) => $inPeriod($r->date_of_registration ?? null));
 
