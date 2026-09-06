@@ -262,10 +262,10 @@ const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) =
             <Td className="w-1/2 pl-4">
               1. No. of women of reproductive age (WRA) 15-49 years old who have demand for Family Planning (FP) and currently using, or whose partner is currently using, any modern FP methods
             </Td>
-            <InputCell value={familyPlanning?.demandSatisfied['10-14']} />
-            <InputCell value={familyPlanning?.demandSatisfied['15-19']} />
-            <InputCell value={familyPlanning?.demandSatisfied['20-49']} />
-            <InputCell value={familyPlanning?.demandSatisfied.total} />
+            <InputCell value="" />
+            <InputCell value="" />
+            <InputCell value="" />
+            <InputCell value=""/>
             <InputCell />
           </tr>
         </tbody>

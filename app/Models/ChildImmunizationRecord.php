@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ChildImmunizationRecord extends Model
 {
+    use HasFactory;
+
     /**
      * The table associated with the model.
      *
@@ -17,34 +20,52 @@ class ChildImmunizationRecord extends Model
     /**
      * The attributes that are mass assignable.
      *
+     * Matches database/migrations/2026_06_21_235555_create_child_immunization_records_table.php
+     * exactly (camelCase throughout, profileId as the household_profiles FK) —
+     * the previous version of this model listed a completely different,
+     * unrelated snake_case schema (household_profile_id, child_name, etc.)
+     * that doesn't exist on this table.
+     *
      * @var array<int, string>
      */
     protected $fillable = [
-        'household_profile_id',
-        'child_name',
-        'date_of_birth',
-        'age_in_months',
-        'cpab_date',
-        'bcg_date',
-        'dpt_hib_hepb_dose_1_date',
-        'dpt_hib_hepb_dose_2_date',
-        'dpt_hib_hepb_dose_3_date',
-        'opv_dose_1_date',
-        'opv_dose_2_date',
-        'opv_dose_3_date',
-        'ipv_date',
-        'pcv_dose_1_date',
-        'pcv_dose_2_date',
-        'pcv_dose_3_date',
-        'mmr_dose_1_date',
-        'mmr_dose_2_date',
-        'hpv_dose_1_date',
-        'hpv_dose_2_date',
-        'hpv_dose_3_date',
-        'fic_date',
-        'cic_date',
-        'status',
-        'remarks',
+        'profileId', 'userId',
+
+        // Demographics
+        'registrationDate', 'familySerialNumber', 'childName', 'dateOfBirth',
+        'ageMonths', 'sex', 'motherName', 'address',
+
+        // CPAB
+        'td2Mother', 'td3To5Mother',
+
+        // BCG
+        'bcgWithin24hAge', 'bcgWithin24hDate', 'bcgLateAge', 'bcgLateDate',
+
+        // Hepatitis B
+        'hepaBWithin24hAge', 'hepaBWithin24hDate', 'hepaBLateAge', 'hepaBLateDate',
+
+        // DPT-HiB-HepB
+        'dpt1Age', 'dpt1Date', 'dpt2Age', 'dpt2Date', 'dpt3Age', 'dpt3Date',
+
+        // OPV
+        'opv1Age', 'opv1Date', 'opv2Age', 'opv2Date', 'opv3Age', 'opv3Date',
+
+        // IPV
+        'ipv1Age', 'ipv1Date', 'ipv2Age', 'ipv2Date',
+
+        // PCV
+        'pcv1Age', 'pcv1Date', 'pcv2Age', 'pcv2Date', 'pcv3Age', 'pcv3Date',
+
+        // MMR
+        'mmr1Age', 'mmr1Date', 'mmr2Age', 'mmr2Date',
+
+        // FIC
+        'ficBcg', 'ficDpt3', 'ficOpv3', 'ficMmr2', 'ficDate',
+
+        // CIC
+        'cicBcg', 'cicDpt3', 'cicOpv3', 'cicMmr2', 'cicDate',
+
+        'remarks', 'isSynced', 'newInsert', 'updatedAt',
     ];
 
     /**
@@ -53,33 +74,33 @@ class ChildImmunizationRecord extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'date_of_birth' => 'date',
-        'cpab_date' => 'date',
-        'bcg_date' => 'date',
-        'dpt_hib_hepb_dose_1_date' => 'date',
-        'dpt_hib_hepb_dose_2_date' => 'date',
-        'dpt_hib_hepb_dose_3_date' => 'date',
-        'opv_dose_1_date' => 'date',
-        'opv_dose_2_date' => 'date',
-        'opv_dose_3_date' => 'date',
-        'ipv_date' => 'date',
-        'pcv_dose_1_date' => 'date',
-        'pcv_dose_2_date' => 'date',
-        'pcv_dose_3_date' => 'date',
-        'mmr_dose_1_date' => 'date',
-        'mmr_dose_2_date' => 'date',
-        'hpv_dose_1_date' => 'date',
-        'hpv_dose_2_date' => 'date',
-        'hpv_dose_3_date' => 'date',
-        'fic_date' => 'date',
-        'cic_date' => 'date',
+        'td2Mother' => 'boolean',
+        'td3To5Mother' => 'boolean',
+        'ficBcg' => 'boolean',
+        'ficDpt3' => 'boolean',
+        'ficOpv3' => 'boolean',
+        'ficMmr2' => 'boolean',
+        'cicBcg' => 'boolean',
+        'cicDpt3' => 'boolean',
+        'cicOpv3' => 'boolean',
+        'cicMmr2' => 'boolean',
+        'isSynced' => 'boolean',
+        'newInsert' => 'boolean',
     ];
 
     /**
-     * Get the household profile that owns this child immunization record.
+     * The household profile (child) this immunization record belongs to.
      */
     public function householdProfile(): BelongsTo
     {
-        return $this->belongsTo(HouseholdProfile::class, 'household_profile_id');
+        return $this->belongsTo(HouseholdProfile::class, 'profileId');
+    }
+
+    /**
+     * The health worker who recorded this immunization.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'userId');
     }
 }

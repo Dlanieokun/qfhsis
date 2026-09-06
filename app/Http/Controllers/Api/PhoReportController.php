@@ -577,17 +577,28 @@ class PhoReportController extends Controller
 
         // ── A.1 / A.2 Immunization (child_immunization_records) ─────────────
         $immRecords = ChildImmunizationRecord::query()
-            // ->when(true, function ($q) use ($location) {
-            //     $this->applyProfileIdLocationFilter($q, $location);
-            // })
+            ->when(true, function ($q) use ($location) {
+                $this->applyProfileIdLocationFilter($q, $location);
+            })
             ->get();
+        
 
-
-        // Maps DB date column -> reporting key. CPAB/FIC/CIC have no per-dose age
-        // cohort of their own, so they are always attributed to the child's own record.
-        $doseCohortColumns = [
+        // Dose columns exclusive to A.1 (0-11 months, current year cohort).
+        // MMR 2 is NOT listed under A.1 in the spec — it only appears in A.2.
+        $doseColumns0_11 = [
             'bcgWithin24hDate' => 'bcg24h', 'bcgLateDate' => 'bcgLate',
             'hepaBWithin24hDate' => 'hepB24h', 'hepaBLateDate' => 'hepBLate',
+            'dpt1Date' => 'dpt1', 'dpt2Date' => 'dpt2', 'dpt3Date' => 'dpt3',
+            'opv1Date' => 'opv1', 'opv2Date' => 'opv2', 'opv3Date' => 'opv3',
+            'ipv1Date' => 'ipv1', 'ipv2Date' => 'ipv2',
+            'pcv1Date' => 'pcv1', 'pcv2Date' => 'pcv2', 'pcv3Date' => 'pcv3',
+            'mmr1Date' => 'mmr1',
+        ];
+
+        // Dose columns for A.2 (previous-year cohort, catch-up doses).
+        // Excludes bcg24h, bcgLate, hepB24h, hepBLate (not listed in A.2 spec).
+        // Includes mmr2Date and FIC/CIC (handled separately below).
+        $doseColumnsPrev = [
             'dpt1Date' => 'dpt1', 'dpt2Date' => 'dpt2', 'dpt3Date' => 'dpt3',
             'opv1Date' => 'opv1', 'opv2Date' => 'opv2', 'opv3Date' => 'opv3',
             'ipv1Date' => 'ipv1', 'ipv2Date' => 'ipv2',
@@ -595,38 +606,44 @@ class PhoReportController extends Controller
             'mmr1Date' => 'mmr1', 'mmr2Date' => 'mmr2',
         ];
 
+        // return response()->json($immRecords, 200);
+
         foreach ($immRecords as $rec) {
             $dob = $this->parseDateOrNull($rec->dateOfBirth ?? null);
-            // Cohort: children born in the reporting year are tallied under A.1
-            // (current year, 0-11mo); children born the previous year are tallied
-            // under A.2 (previous year catch-up doses).
-            $isCurrentYearCohort  = $dob && (int) $dob->year === $year;
-            $isPreviousYearCohort = $dob && (int) $dob->year === $year - 1;
 
-            foreach ($doseCohortColumns as $col => $key) {
-                $doseDate = $this->parseDateOrNull($rec->{$col} ?? null);
-                if (!$doseDate || !$doseDate->between($startOfSelected, $endOfSelected)) {
-                    continue;
+            // Cohort classification per spec:
+            //   A.1 — child is < 12 months old at the end of the reporting period
+            //          (i.e. born within the last 11 months 29 days).
+            //   A.2 — child is >= 12 months old at the end of the reporting period
+            //          (i.e. born more than 11 months ago — previous year catch-up).
+            $ageMonthsAtPeriodEnd = $dob ? (int) $dob->diffInMonths($endOfSelected) : null;
+            $isCurrentYearCohort  = $ageMonthsAtPeriodEnd !== null && $ageMonthsAtPeriodEnd < 12;
+            $isPreviousYearCohort = $ageMonthsAtPeriodEnd !== null && $ageMonthsAtPeriodEnd >= 12;
+
+            if ($isCurrentYearCohort) {
+                foreach ($doseColumns0_11 as $col => $key) {
+                    $doseDate = $this->parseDateOrNull($rec->{$col} ?? null);
+                    // return response()->json($endOfSelected, 200);
+                    if ($doseDate && $doseDate->between($startOfSelected, $endOfSelected)) {
+                        $bump($imm0_11, $key, $rec->sex ?? null);
+                    }
                 }
-                if ($isCurrentYearCohort) {
-                    $bump($imm0_11, $key, $rec->sex ?? null);
-                } elseif ($isPreviousYearCohort) {
-                    $bump($immPrev, $key, $rec->sex ?? null);
+            } elseif ($isPreviousYearCohort) {
+                foreach ($doseColumnsPrev as $col => $key) {
+                    $doseDate = $this->parseDateOrNull($rec->{$col} ?? null);
+                    if ($doseDate && $doseDate->between($startOfSelected, $endOfSelected)) {
+                        $bump($immPrev, $key, $rec->sex ?? null);
+                    }
                 }
             }
 
-            
-            return response()->json($immRecords, 200);
-
-            // CPAB — Children Protected At Birth. Only count newborns whose
-            // registration falls within the reporting month AND who belong to
-            // the current-year cohort (born this year). This prevents a child
-            // registered last year from being double-counted under A.1.
+            // CPAB — Children Protected At Birth.
+            // Spec: td2Mother = 1 OR td3To5Mother = 1, AND dateOfBirth < 12 months.
+            // No "dose given this month" date to check — this is a birth-cohort flag,
+            // so we simply count it for every current-year (0-11 mo) child whose
+            // record falls in the reporting period via the location/query scope above.
             if ($isCurrentYearCohort && ($this->truthy($rec->td2Mother ?? null) || $this->truthy($rec->td3To5Mother ?? null))) {
-                $regDate = $this->parseDateOrNull($rec->registrationDate ?? null);
-                if ($regDate && $regDate->between($startOfSelected, $endOfSelected)) {
-                    $bump($imm0_11, 'cpab', $rec->sex ?? null);
-                }
+                $bump($imm0_11, 'cpab', $rec->sex ?? null);
             }
 
             // FIC / CIC completion — tallied under the previous-year table (A.2)
@@ -652,12 +669,11 @@ class PhoReportController extends Controller
             ->get();
 
         foreach ($schoolRecords as $rec) {
-            $grade = strtolower(trim((string) ($rec->gradeLevel ?? '')));
-            // Use word-boundary regex to avoid false positives:
-            // str_contains('grade 11', '1') === true, which would incorrectly
-            // classify Grade 11 as Grade 1. Same issue applies to Grade 7 vs 17.
-            $isGrade1 = (bool) preg_match('/\bgrade\s*1\b/', $grade) || $grade === '1';
-            $isGrade7 = (bool) preg_match('/\bgrade\s*7\b/', $grade) || $grade === '7';
+            // Spec: gradeLevel = "A" for Grade 1 learners, gradeLevel = "C" for Grade 7 learners.
+            // The DB stores the single-letter code, not a free-form string — match exactly.
+            $grade    = strtoupper(trim((string) ($rec->gradeLevel ?? '')));
+            $isGrade1 = $grade === 'A';
+            $isGrade7 = $grade === 'C';
 
             $tdDate = $this->parseDateOrNull($rec->tdDate ?? null);
             if ($tdDate && $tdDate->between($startOfSelected, $endOfSelected)) {
@@ -685,60 +701,93 @@ class PhoReportController extends Controller
         }
 
         // ── Nutrition (child_nutrition_records) ──────────────────────────────
+        // Per spec, each indicator is gated on its OWN date column matching the
+        // reporting period — NOT on dateRegistration. MAM/SAM flags have no date
+        // gate at all (spec says mamIdentified = 1, not a date comparison).
+        // We therefore load all location-scoped records and evaluate each indicator
+        // field independently.
         $nutritionRecords = ChildNutritionRecord::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location);
             })
-            ->get()
-            ->filter(function ($rec) use ($startOfSelected, $endOfSelected) {
-                $d = $this->parseDateOrNull($rec->dateRegistration ?? null);
-                return $d && $d->between($startOfSelected, $endOfSelected);
-            });
+            ->get();
 
         foreach ($nutritionRecords as $rec) {
             $sex = $rec->sex ?? null;
 
-            if (!empty($rec->breastfeedingDate)) {
+            // Helper: true when a date-type field falls within the reporting period.
+            $inPeriod = function (?string $value) use ($startOfSelected, $endOfSelected): bool {
+                $d = $this->parseDateOrNull($value);
+                return $d && $d->between($startOfSelected, $endOfSelected);
+            };
+
+            // 1. Newborns initiated on breastfeeding within 1 hour after birth.
+            //    Gate: breastfeedingDate within the reporting period.
+            if ($inPeriod($rec->breastfeedingDate ?? null)) {
                 $bump($nutrition, 'breastfeedingInit', $sex);
             }
-            if ($this->contains($rec->birthWeightStatus ?? null, 'low') && $this->truthy($rec->ironCompleted ?? null)) {
+
+            // 2. LBW infants given complete iron supplements.
+            //    Gate: ironCompletedDate within the reporting period (spec uses the
+            //    date column, not the boolean ironCompleted flag).
+            if ($this->contains($rec->birthWeightStatus ?? null, 'low') && $inPeriod($rec->ironCompletedDate ?? null)) {
                 $bump($nutrition, 'lbwIronComplete', $sex);
             }
-            if (!empty($rec->vitaA6to11)) {
+
+            // 3a. Infants 6-11 months who received 1 dose of Vitamin A.
+            //     Gate: vitaA6to11 date within the reporting period.
+            if ($inPeriod($rec->vitaA6to11 ?? null)) {
                 $bump($nutrition, 'vitA6to11', $sex);
             }
-            $vitADoses = collect([
+
+            // 3b. Children 12-59 months who completed 2 doses of Vitamin A.
+            //     Spec: count if ANY of the 7 listed dose date columns falls within
+            //     the reporting period (at least one dose was given this month).
+            //     Note: vitaA200Y2D2 exists in the model but is NOT in the spec list.
+            $vitADosesInPeriod = collect([
                 $rec->vitaA200Y1D1 ?? null, $rec->vitaA200Y1D2 ?? null,
-                $rec->vitaA200Y2D1 ?? null, $rec->vitaA200Y2D2 ?? null,
+                $rec->vitaA200Y2D1 ?? null,
                 $rec->vitaA200Y3D1 ?? null, $rec->vitaA200Y3D2 ?? null,
                 $rec->vitaA200Y4D1 ?? null, $rec->vitaA200Y4D2 ?? null,
-            ])->filter(fn ($d) => !empty($d))->count();
-            if ($vitADoses >= 2) {
+            ])->contains(fn ($d) => $inPeriod($d));
+            if ($vitADosesInPeriod) {
                 $bump($nutrition, 'vitA12to59TwoDoses', $sex);
             }
-            if ($this->truthy($rec->mnp6to11Completed ?? null)) {
+
+            // 4a. Infants 6-11 months who completed routine MNP supplementation.
+            //     Gate: mnp6to11Completed date within the reporting period.
+            if ($inPeriod($rec->mnp6to11Completed ?? null)) {
                 $bump($nutrition, 'mnp6to11', $sex);
             }
-            if ($this->truthy($rec->mnp12to23Completed ?? null)) {
+
+            // 4b. Children 12-23 months who completed routine MNP supplementation.
+            //     Gate: mnp12to23Completed date within the reporting period.
+            if ($inPeriod($rec->mnp12to23Completed ?? null)) {
                 $bump($nutrition, 'mnp12to23', $sex);
             }
-            if ($this->truthy($rec->lns6to11Completed ?? null)) {
+
+            // 5a. Infants 6-11 months who completed routine LNS-SQ supplementation.
+            //     Gate: lns6to11Completed date within the reporting period.
+            if ($inPeriod($rec->lns6to11Completed ?? null)) {
                 $bump($nutrition, 'lns6to11', $sex);
             }
-            if ($this->truthy($rec->lns12to23Completed ?? null)) {
+
+            // 5b. Children 12-23 months who completed routine LNS-SQ supplementation.
+            //     Gate: lns12to23Completed date within the reporting period.
+            if ($inPeriod($rec->lns12to23Completed ?? null)) {
                 $bump($nutrition, 'lns12to23', $sex);
             }
 
             // ── MAM / SAM (integer tallies per record) ───────────────────────
+            // Spec: these are flag checks (= 1), NOT date comparisons — no period gate.
             $bumpN = function (string $key, int $n) use (&$nutrition2, $sex, $sexEmpty) {
                 if ($n <= 0) return;
                 if (!isset($nutrition2[$key])) $nutrition2[$key] = $sexEmpty;
                 $nutrition2[$key]['total'] += $n;
                 if ($sk = $this->sexKey($sex)) $nutrition2[$key][$sk] += $n;
             };
-            // seen0to59: only count children who are actually 0-59 months old.
-            // Without this guard every nutrition record bumped the counter regardless
-            // of age, inflating the total for any outlier records outside that window.
+            // seen0to59: spec says "0-59 months old SEEN during the reporting period".
+            // We scope to age range; the broader record set is already location-filtered.
             $nutAgeMonths = is_numeric($rec->ageMonths ?? null) ? (int) $rec->ageMonths : null;
             if ($nutAgeMonths !== null && $nutAgeMonths >= 0 && $nutAgeMonths <= 59) {
                 $bumpN('seen0to59', 1);

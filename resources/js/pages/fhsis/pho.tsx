@@ -9,6 +9,7 @@ import M1AllPrograms from './M1AllPrograms';
 import Q1AllPrograms from './Q1AllPrograms';
 import M28PAA from './M28PAA';
 import A1AllPrograms from './A1AllPrograms';
+import MorbidityPage from './MorbidityPage';
 
 // ─── Location Data Shapes ────────────────────────────────────────────────────
 interface Region { regCode: string; regDesc: string; }
@@ -116,13 +117,14 @@ const breadcrumbs: BreadcrumbItem[] = [
 export default function PhoPage({
     regions = [], provinces = [], municipalities = [], barangays = []
 }: PhoPageProps) {
-    const [activeTab, setActiveTab] = useState<'m1' | 'q1' | 'm2' | 'a1'>('m1');
+    const [activeTab, setActiveTab] = useState<'m1' | 'q1' | 'm2' | 'a1' | 'mo'>('m1');
 
     const tabs = [
         { id: 'm1', label: 'M1_All Programs' },
         { id: 'q1', label: 'Q1_All Programs' },
         { id: 'm2', label: 'M2_8PAA' },
         { id: 'a1', label: 'A1_All Program' },
+        { id: 'mo', label: 'M2_Morbidity' },
     ] as const;
 
     return (
@@ -203,6 +205,13 @@ export default function PhoPage({
                                 regions={regions}
                                 provinces={provinces}
                                 municipalities={municipalities}
+                            />
+                        }
+                        {activeTab === 'mo' && 
+                            <MorbidityPage
+                                // regions={regions}
+                                // provinces={provinces}
+                                // municipalities={municipalities}
                             />
                         }
                     </motion.div>
