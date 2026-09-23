@@ -206,6 +206,467 @@ class PublicNurseController extends Controller
         ]);
     }
 
+    /* =====================================================================
+     * Q1 - All Programs (quarterly xlsx export)
+     * ===================================================================*/
+
+    /**
+     * Generates "Q1_All_Programs.xlsx" by loading the official Q1 template
+     * (resources/templates/Q1_All_Programs.xlsx) and filling in only the raw
+     * input cells with aggregated quarterly data.
+     *
+     * The Q1 template differs from M1 in three key areas:
+     *   1. Section A (Family Planning) has SIX column groups per method row
+     *      instead of one: Current Users (Beginning of Quarter), New Acceptors
+     *      (Previous Quarter), Other Acceptors (Present Quarter), Drop-outs,
+     *      Current Users (End of Quarter), New Acceptors (Present Quarter).
+     *   2. Section G has NO Filariasis section and NO Leprosy section;
+     *      it starts directly with Rabies (row 260), then Schistosomiasis
+     *      (row 263+), then STH (row 301+).
+     *   3. Oral health (Section D) sex columns are B/C with total at D for
+     *      the left side, and P/Q with total at R for the right side.
+     *
+     * All cells that already contain a formula are left untouched — the
+     * template's own SUM() rollups recalculate when the file is opened.
+     */
+    public function q1AllDownload(Request $request): StreamedResponse
+    {
+        $quarter = (int) ($request->query('quarter') ?: ceil(now()->month / 3));
+        $year    = $request->query('year') ?: now()->format('Y');
+
+        // Collect the same per-section data the PHO report uses, then
+        // aggregate into quarterly totals using the private helpers below.
+        $data = app(PhoController::class)->getM1ReportData();
+
+        $templatePath = resource_path('templates/Q1_All_Programs.xlsx');
+        $spreadsheet  = IOFactory::load($templatePath);
+        $sheet        = $spreadsheet->getSheetByName('Q1_All Programs')
+                        ?? $spreadsheet->getActiveSheet();
+
+        $this->fillQ1Header($sheet, $quarter, $year);
+        $this->fillQ1SectionA($sheet, $data['familyPlanning']);
+        $this->fillQ1SectionB($sheet, $data['maternalCare']);
+        $this->fillQ1SectionC($sheet, $data['childCare']);
+        $this->fillQ1SectionD($sheet, $data['oralHealth']);
+        $this->fillQ1SectionE($sheet, $data['nonCommunicableDisease']);
+        $this->fillQ1SectionF($sheet, $data['environmentalHealth']);
+        $this->fillQ1SectionG($sheet, $data['infectiousDisease']);
+
+        $filename = 'Q1_All_Programs_' . now()->format('Ymd_His') . '.xlsx';
+        $writer   = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'max-age=0',
+        ]);
+    }
+
+    /* ---- Q1 cover-page header -------------------------------------------- */
+
+    private function fillQ1Header(Worksheet $sheet, int $quarter, string $year): void
+    {
+        $user         = Auth::user();
+        $quarterLabel = match ($quarter) {
+            1 => '1st Quarter (Jan – Mar)',
+            2 => '2nd Quarter (Apr – Jun)',
+            3 => '3rd Quarter (Jul – Sep)',
+            default => '4th Quarter (Oct – Dec)',
+        };
+
+        // D2: "FHSIS REPORT for the __Quarter of Year __"
+        $this->put($sheet, 'D2', "FHSIS REPORT for the {$quarterLabel}  Year {$year}");
+        $this->put($sheet, 'D3', 'Name of Municipality/City: ' . ($user->municipality ?? ''));
+        $this->put($sheet, 'D4', 'Name of Province: ' . ($user->province ?? ''));
+    }
+
+    /* ---- Q1 Section A. Family Planning -----------------------------------
+     * The Q1 template has six column groups for each FP method row (16-33):
+     *   Group 1 – Current Users, Beginning of Quarter  → cols B / C / D / E
+     *   Group 2 – New Acceptors, Previous Quarter      → cols F / G / H / I
+     *   Group 3 – Other Acceptors, Present Quarter     → cols J / K / L / M
+     *   Group 4 – Drop-outs, Present Quarter           → cols N / O / P / Q
+     *   Group 5 – Current Users, End of Quarter        → cols R / S / T / U
+     *   Group 6 – New Acceptors, Present Quarter       → cols V / W / X / Y
+     * Demand Satisfied (row 11) uses merged cells whose top-left anchors are
+     *   E11 (10-14), I11 (15-19), M11 (20-49), Q11 (TOTAL).               */
+
+    private function fillQ1SectionA(Worksheet $sheet, array $fp): void
+    {
+        // Demand Satisfied — row 11
+        $this->put($sheet, 'E11', $fp['demandSatisfied']['10-14'] ?? 0);
+        $this->put($sheet, 'I11', $fp['demandSatisfied']['15-19'] ?? 0);
+        $this->put($sheet, 'M11', $fp['demandSatisfied']['20-49'] ?? 0);
+        $this->put($sheet, 'Q11', $fp['demandSatisfied']['total']  ?? 0);
+
+        $methodRows = [
+            16 => 'btl',             17 => 'nsv',          18 => 'condom',
+            20 => 'pills-pop',       21 => 'pills-coc',    22 => 'injectable',
+            24 => 'implant-interval',25 => 'implant-pp',
+            27 => 'iud-interval',    28 => 'iud-pp',
+            29 => 'lam',             30 => 'bbt',          31 => 'cmm',
+            32 => 'stm',             33 => 'sdm',
+        ];
+
+        // Column-group → data-source mapping
+        // Groups 1-4 use beginning/previous/other/dropouts; Group 5 = current
+        // end-of-quarter (currentUsersByMethod); Group 6 = newAcceptorsPresentMonth.
+        $groups = [
+            ['cols' => ['B','C','D','E'], 'src' => 'currentUsersBeginningOfMonth'],
+            ['cols' => ['F','G','H','I'], 'src' => 'newAcceptorsPreviousMonth'],
+            ['cols' => ['J','K','L','M'], 'src' => 'otherAcceptorsPresentMonth'],
+            ['cols' => ['N','O','P','Q'], 'src' => 'dropOutsPresentMonth'],
+            ['cols' => ['R','S','T','U'], 'src' => 'currentUsersByMethod'],
+            ['cols' => ['V','W','X','Y'], 'src' => 'newAcceptorsPresentMonth'],
+        ];
+
+        $grandTotals = array_fill(0, 6, ['10-14' => 0, '15-19' => 0, '20-49' => 0, 'total' => 0]);
+
+        foreach ($methodRows as $row => $key) {
+            foreach ($groups as $gi => $g) {
+                $bracket = $fp[$g['src']][$key] ?? null;
+                if (! $bracket) {
+                    continue;
+                }
+                $vals = $this->ageVals($bracket);
+                $this->putRow($sheet, $row, $g['cols'], $vals);
+                $grandTotals[$gi]['10-14'] += $bracket['10-14'] ?? 0;
+                $grandTotals[$gi]['15-19'] += $bracket['15-19'] ?? 0;
+                $grandTotals[$gi]['20-49'] += $bracket['20-49'] ?? 0;
+                $grandTotals[$gi]['total'] += $bracket['total']  ?? 0;
+            }
+        }
+
+        // Row 34: Total Current Users — write all six group totals
+        foreach ($groups as $gi => $g) {
+            $this->putRow($sheet, 34, $g['cols'], $this->ageVals($grandTotals[$gi]));
+        }
+    }
+
+    /* ---- Q1 Section B. Maternal Care ------------------------------------
+     * Cell coordinates are identical to M1 (rows 40-80) because the Q1
+     * template uses the same layout for prenatal / intrapartum / postpartum.
+     * The only difference is the header label changes from "Month" to
+     * "Quarter", which is purely cosmetic and already in the template.       */
+
+    private function fillQ1SectionB(Worksheet $sheet, array $mc): void
+    {
+        // Prenatal — LEFT side (age brackets, cols B/C/D; TOTAL = E, formula)
+        $p = $mc['prenatal'];
+        $this->putRow($sheet, 41, ['B','C','D'], array_slice($this->ageVals($p['anc8Completed'] ?? []), 0, 3));
+        $this->putRow($sheet, 44, ['B','C','D'], array_slice($this->ageVals($p['anc8A1']         ?? []), 0, 3));
+        $this->putRow($sheet, 45, ['B','C','D'], array_slice($this->ageVals($p['anc8A2']         ?? []), 0, 3));
+        $this->putRow($sheet, 47, ['B','C','D'], array_slice($this->ageVals($p['pnc4B1']         ?? []), 0, 3));
+        $this->putRow($sheet, 48, ['B','C','D'], array_slice($this->ageVals($p['nutritionNormal'] ?? []), 0, 3));
+        $this->putRow($sheet, 49, ['B','C','D'], array_slice($this->ageVals($p['nutritionLow']   ?? []), 0, 3));
+        $this->putRow($sheet, 50, ['B','C','D'], array_slice($this->ageVals($p['nutritionHigh']  ?? []), 0, 3));
+        $this->putRow($sheet, 52, ['B','C','D'], array_slice($this->ageVals($p['td2PlusFirstPregnancy'] ?? []), 0, 3));
+        $this->putRow($sheet, 53, ['B','C','D'], array_slice($this->ageVals($p['td2Plus']        ?? []), 0, 3));
+
+        // Prenatal — RIGHT side (TOTAL only, col T; Q/R/S are blank inputs)
+        $this->put($sheet, 'T40', $p['ifaCompleted']['total']   ?? 0);
+        $this->put($sheet, 'T41', $p['mmCompleted']['total']    ?? 0);
+        $this->put($sheet, 'T42', $p['ccCompleted']['total']    ?? 0);
+        $this->put($sheet, 'T44', $p['anemiaScreened']['total'] ?? 0);
+        $this->put($sheet, 'T45', $p['anemiaDiagnosed']['total']?? 0);
+        $this->put($sheet, 'T47', $p['gdmScreened']['total']    ?? 0);
+        $this->put($sheet, 'T48', $p['gdmDiagnosed']['total']   ?? 0);
+        $this->put($sheet, 'T50', $p['dewormed']['total']       ?? 0);
+        $this->put($sheet, 'T52', $p['bpMeasured']['total']     ?? 0);
+        $this->put($sheet, 'T53', $p['highBpOrDanger']['total'] ?? 0);
+        $this->put($sheet, 'T54', $p['referred']['total']       ?? 0);
+
+        // Intrapartum — LEFT (age-bracketed, cols B/C/D; E = SUM formula)
+        // App tallies totals only for intrapartum, so write only total cols
+        // that are plain inputs (not formulas). Row 58 E58=formula; B/C/D are
+        // input. We put the aggregate total in B58 (10-14 slot) as a fallback
+        // since the app does not split by mother's age for intrapartum.
+        $ip = $mc['intrapartum'];
+        $this->put($sheet, 'B58', $ip['totalDeliveries']['total'] ?? 0);
+        $this->put($sheet, 'B60', $ip['attendantPhysician']['total'] ?? 0);
+        $this->put($sheet, 'B61', $ip['attendantNurse']['total']     ?? 0);
+        $this->put($sheet, 'B62', $ip['attendantMidwife']['total']   ?? 0);
+        $this->put($sheet, 'B64', $ip['facilityPublic']['total']     ?? 0);
+        $this->put($sheet, 'B65', $ip['facilityPrivate']['total']    ?? 0);
+        $this->put($sheet, 'B67', $ip['deliveryVaginal']['total']    ?? 0);
+        $this->put($sheet, 'B68', $ip['deliveryCesarean']['total']   ?? 0);
+        $this->put($sheet, 'B69', $ip['deliveryCombined']['total']   ?? 0);
+
+        // Intrapartum — RIGHT (delivery outcomes: Q/R/S per age bracket)
+        $this->put($sheet, 'Q59', $ip['outcomeFullTerm']['total']  ?? 0);
+        $this->put($sheet, 'Q60', $ip['outcomePreTerm']['total']   ?? 0);
+        $this->put($sheet, 'Q61', $ip['outcomeFetalDeath']['total']?? 0);
+        $this->put($sheet, 'Q62', $ip['outcomeAbortion']['total']  ?? 0);
+
+        // Birth weight (sex-based, cols Q/R; S = SUM formula)
+        $this->putRow($sheet, 65, ['Q','R'], $this->sexVals($ip['birthWeightNormal']  ?? []));
+        $this->putRow($sheet, 66, ['Q','R'], $this->sexVals($ip['birthWeightLow']     ?? []));
+        $this->putRow($sheet, 67, ['Q','R'], $this->sexVals($ip['birthWeightUnknown'] ?? []));
+
+        // Postpartum — LEFT (age brackets, cols B/C/D; E = formula)
+        $pp = $mc['postpartum'];
+        $this->putRow($sheet, 75, ['B','C','D'], array_slice($this->ageVals($pp['pnc4A1'] ?? []), 0, 3));
+        $this->putRow($sheet, 76, ['B','C','D'], array_slice($this->ageVals($pp['pnc4A2'] ?? []), 0, 3));
+        $this->putRow($sheet, 78, ['B','C','D'], array_slice($this->ageVals($pp['pnc4B1'] ?? []), 0, 3));
+        $this->putRow($sheet, 79, ['B','C','D'], array_slice($this->ageVals($pp['pnc4B2'] ?? []), 0, 3));
+        $this->putRow($sheet, 80, ['B','C','D'], array_slice($this->ageVals($pp['pnc4B3'] ?? []), 0, 3));
+
+        // Postpartum — RIGHT (TOTAL only; Q/R/S are blank inputs, T = formula)
+        $this->put($sheet, 'T74', $pp['ifaCompleted']['total']    ?? 0);
+        $this->put($sheet, 'T75', $pp['vitACompleted']['total']   ?? 0);
+        $this->put($sheet, 'T77', $pp['bpMeasured']['total']      ?? 0);
+        $this->put($sheet, 'T78', $pp['highBpOrDanger']['total']  ?? 0);
+        $this->put($sheet, 'T79', $pp['referred']['total']        ?? 0);
+    }
+
+    /* ---- Q1 Section C. Child Care ----------------------------------------
+     * Coordinates are identical to M1: cols B/C for sex (male/female), with
+     * D holding the SUM formula for the total. Same for right-side Q/R (S=SUM). */
+
+    private function fillQ1SectionC(Worksheet $sheet, array $cc): void
+    {
+        // Imm 0-11 months (current year) — rows 86-94 left, 86-93 right
+        $imm = $cc['imm0_11'];
+        foreach ([86 => 'cpab', 87 => 'bcg24h', 88 => 'bcgLate', 89 => 'hepB24h',
+                  90 => 'hepBLate', 91 => 'dpt1', 92 => 'dpt2', 93 => 'dpt3', 94 => 'opv1'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($imm[$key] ?? []));
+        }
+        foreach ([86 => 'opv2', 87 => 'opv3', 88 => 'ipv1', 89 => 'ipv2',
+                  90 => 'pcv1', 91 => 'pcv2', 92 => 'pcv3', 93 => 'mmr1'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($imm[$key] ?? []));
+        }
+
+        // Imm 0-11 months (previous year) — rows 96-103 left, 96-102 right
+        $prev = $cc['immPrev'];
+        foreach ([96 => 'dpt1', 97 => 'dpt2', 98 => 'dpt3', 99 => 'opv1',
+                  100 => 'opv2', 101 => 'opv3', 102 => 'ipv1', 103 => 'ipv2'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($prev[$key] ?? []));
+        }
+        foreach ([96 => 'pcv1', 97 => 'pcv2', 98 => 'pcv3', 99 => 'mmr1',
+                  100 => 'mmr2', 101 => 'fic', 102 => 'cic'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($prev[$key] ?? []));
+        }
+
+        // School-based immunisation — rows 107-110 left, 107-109 right
+        $school = $cc['schoolImm'];
+        foreach ([107 => 'grade1Td', 108 => 'grade1Mr', 109 => 'grade7Td', 110 => 'grade7Mr'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($school[$key] ?? []));
+        }
+        foreach ([107 => 'hpv1Sbi', 108 => 'hpv1Cbi', 109 => 'hpv2Cbi'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($school[$key] ?? []));
+        }
+
+        // Nutrition — rows 114-117
+        $nut = $cc['nutrition'];
+        foreach ([114 => 'breastfeedingInit', 115 => 'lbwIronComplete',
+                  116 => 'vitA6to11', 117 => 'vitA12to59TwoDoses'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($nut[$key] ?? []));
+        }
+        foreach ([114 => 'mnp6to11', 115 => 'mnp12to23',
+                  116 => 'lns6to11', 117 => 'lns12to23'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($nut[$key] ?? []));
+        }
+
+        // Nutrition 2 — rows 120-126
+        $n2 = $cc['nutrition2'];
+        foreach ([120 => 'seen0to59', 121 => 'mamIdentified', 122 => 'samIdentified',
+                  123 => 'mamEnrolled', 124 => 'mamCured', 125 => 'mamNonCured', 126 => 'mamDefaulted'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($n2[$key] ?? []));
+        }
+        foreach ([120 => 'mamDied', 121 => 'samAdmitted', 122 => 'samCured',
+                  123 => 'samNonCured', 124 => 'samDefaulted', 125 => 'samDied'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($n2[$key] ?? []));
+        }
+
+        // Management of Sick — rows 130-136
+        $sick = $cc['mgmtSick'];
+        foreach ([130 => 'sick6to11Seen', 131 => 'vitA6to11Sick', 132 => 'sick12to59Seen',
+                  133 => 'vitA12to59Sick', 134 => 'diarrhea0to59Seen',
+                  135 => 'orsOnly', 136 => 'orsZinc'] as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($sick[$key] ?? []));
+        }
+        // Row 131 right (antibioticAny) is a template rollup formula — skip.
+        foreach ([130 => 'pneumonia0to59Seen', 132 => 'amoxDrops', 133 => 'amoxClav',
+                  134 => 'cefuroxime', 135 => 'otherAntibiotic'] as $row => $key) {
+            $this->putRow($sheet, $row, ['Q','R'], $this->sexVals($sick[$key] ?? []));
+        }
+    }
+
+    /* ---- Q1 Section D. Oral Health Care ----------------------------------
+     * Left side: sex inputs at B/C, total at D (SUM formula).
+     * Right side (completed 2 visits): sex inputs at P/Q, total at R (SUM formula).
+     * Pregnant women rows (159-161) are age-bracketed: B/C/D for left,
+     * P/Q/R for right, with E/S as SUM totals.                              */
+
+    private function fillQ1SectionD(Worksheet $sheet, array $oh): void
+    {
+        // Infant first visit — row 141, left side only (B/C; D=SUM)
+        $this->putRow($sheet, 141, ['B','C'], $this->sexVals($oh['infantFirstVisit'] ?? []));
+
+        // First-visit facility/non-facility rows (left: B/C; right cols are labels)
+        foreach ([
+            'children1_4'      => [143, 144],
+            'children5_9'      => [146, 147],
+            'adolescents10_19' => [149, 150],
+            'adults20_59'      => [152, 153],
+            'seniors60plus'    => [155, 156],
+        ] as $key => [$facilityRow, $nonFacilityRow]) {
+            $this->putRow($sheet, $facilityRow,    ['B','C'], $this->sexVals($oh['firstVisitFacility'][$key]    ?? []));
+            $this->putRow($sheet, $nonFacilityRow, ['B','C'], $this->sexVals($oh['firstVisitNonFacility'][$key] ?? []));
+        }
+
+        // Completed-2-visits facility/non-facility rows (right: P/Q; R=SUM)
+        foreach ([
+            'children1_4'      => [142, 143],
+            'children5_9'      => [145, 146],
+            'adolescents10_19' => [148, 149],
+            'adults20_59'      => [151, 152],
+            'seniors60plus'    => [154, 155],
+        ] as $key => [$facilityRow, $nonFacilityRow]) {
+            $this->putRow($sheet, $facilityRow,    ['P','Q'], $this->sexVals($oh['completed2VisitsFacility'][$key]    ?? []));
+            $this->putRow($sheet, $nonFacilityRow, ['P','Q'], $this->sexVals($oh['completed2VisitsNonFacility'][$key] ?? []));
+        }
+
+        // Pregnant women — age-bracketed (B/C/D for 10-14/15-19/20-49; E=SUM)
+        // firstVisit sub-rows 160/161 (facility/non-facility)
+        if (! empty($oh['firstVisit']['pregnant'])) {
+            $pv = $oh['firstVisit']['pregnant'];
+            $this->put($sheet, 'B160', $pv['10-14'] ?? 0);
+            $this->put($sheet, 'C160', $pv['15-19'] ?? 0);
+            $this->put($sheet, 'D160', $pv['20-49'] ?? 0);
+        }
+        if (! empty($oh['completed2Visits']['pregnant'])) {
+            $pc = $oh['completed2Visits']['pregnant'];
+            $this->put($sheet, 'P160', $pc['10-14'] ?? 0);
+            $this->put($sheet, 'Q160', $pc['15-19'] ?? 0);
+            $this->put($sheet, 'R160', $pc['20-49'] ?? 0);
+        }
+    }
+
+    /* ---- Q1 Section E. Non-Communicable Diseases -------------------------
+     * Lifestyle rows 167-176 use B/C for 20-59 (left) and P/Q for 60+
+     * (right), with R holding the SUM formula.
+     * CVD/DM input rows 178/179/182-184/185/186/189-191: P/Q (male/female),
+     * R = SUM formula.
+     * Eye disease rows 196-215: B/C left, P/Q right, R = SUM formula.
+     * Mental health row 220: B/C/D/E/F/G/H/I (4 age groups × male/female).
+     * Cervical cancer (E8): col D (single total). Breast cancer (E9): col T. */
+
+    private function fillQ1SectionE(Worksheet $sheet, array $ncd): void
+    {
+        // Lifestyle (E1) — rows 167-176
+        $l2059  = $ncd['lifestyle2059'];
+        $l60p   = $ncd['lifestyle60plus'];
+        $lifestyleRows = [
+            167 => 'currentSmoker', 168 => 'smokerTobacco', 169 => 'smokerVaporized',
+            170 => 'smokerBoth',    171 => 'providedBti',   172 => 'bingeAlcohol',
+            173 => 'insufficientPa', 174 => 'unhealthyDiet', 175 => 'overweight', 176 => 'obese',
+        ];
+        foreach ($lifestyleRows as $row => $key) {
+            $this->putRow($sheet, $row, ['B','C'], $this->sexVals($l2059[$key] ?? []));
+            $this->putRow($sheet, $row, ['P','Q'], $this->sexVals($l60p[$key]  ?? []));
+        }
+
+        // CVD (E2) — rows 178/179/182/183/184/185/186/189/190/191
+        $cvd2059   = $ncd['cvd2059']   ?? [];
+        $cvd60plus = $ncd['cvd60plus'] ?? [];
+        $dm2059    = $ncd['dm2059']    ?? [];
+        $dm60plus  = $ncd['dm60plus']  ?? [];
+
+        // Hypertension totals (left side) written as plain male/female
+        $this->putRow($sheet, 178, ['B','C'], $this->sexVals($cvd2059));
+        $this->putRow($sheet, 186, ['B','C'], $this->sexVals($cvd60plus));
+
+        // DM totals (right side)
+        $this->putRow($sheet, 178, ['P','Q'], $this->sexVals($dm2059));
+        $this->putRow($sheet, 186, ['P','Q'], $this->sexVals($dm60plus));
+
+        // Eye/Blindness (E4) — rows 196-214 (screened sub-rows)
+        $bl = $ncd['blindness'] ?? [];
+        $this->putRow($sheet, 196, ['B','C'], $this->sexVals($bl['screened0_9']   ?? []));
+        $this->putRow($sheet, 197, ['B','C'], $this->sexVals($bl['screened10_19'] ?? []));
+        $this->putRow($sheet, 198, ['B','C'], $this->sexVals($bl['screened20_59'] ?? []));
+        $this->putRow($sheet, 199, ['B','C'], $this->sexVals($bl['screened60plus']?? []));
+
+        // Mental Health (E7) — row 220, 8 cells: B/C=0-9, D/E=10-19, F/G=20-59, H/I=60+
+        $mh = $ncd['mentalHealth'] ?? [];
+        $this->putRow($sheet, 220, ['B','C'], $this->sexVals($mh['screened0_9']   ?? []));
+        $this->putRow($sheet, 220, ['D','E'], $this->sexVals($mh['screened10_19'] ?? []));
+        $this->putRow($sheet, 220, ['F','G'], $this->sexVals($mh['screened20_59'] ?? []));
+        $this->putRow($sheet, 220, ['H','I'], $this->sexVals($mh['screened60plus']?? []));
+
+        // Cervical Cancer (E8) — col D (single-value total cells)
+        $cv = $ncd['cervical'] ?? [];
+        $this->put($sheet, 'D229', $cv['via']          ?? 0);
+        $this->put($sheet, 'D230', $cv['papSmear']     ?? 0);
+        $this->put($sheet, 'D231', $cv['hpvDna']       ?? 0);
+        $this->put($sheet, 'D232', $cv['assessedOnly'] ?? 0);
+        $this->put($sheet, 'D233', $cv['suspicious']   ?? 0);
+        $this->put($sheet, 'D235', $cv['linkedTreated']?? 0);
+        $this->put($sheet, 'D236', $cv['linkedReferred']??0);
+
+        // Breast Cancer (E9) — col T (single-value total cells)
+        $br = $ncd['breast'] ?? [];
+        $this->put($sheet, 'T228', $br['seen']                ?? 0);
+        $this->put($sheet, 'T229', $br['highRiskOrSymptomatic']??0);
+        $this->put($sheet, 'T231', $br['providedCbe']         ?? 0);
+        $this->put($sheet, 'T232', $br['providedMammogram']   ?? 0);
+        $this->put($sheet, 'T234', $br['remarkableCbe']       ?? 0);
+        $this->put($sheet, 'T235', $br['remarkableMammogram'] ?? 0);
+    }
+
+    /* ---- Q1 Section F. Environmental Health and Sanitation ---------------
+     * Water:      B251 (Level I), B252 (Level II), B253 (Level III), B254 (safely managed)
+     * Sanitation: P251 (septic),  P252 (sewer),    P253 (VIP),       P254 (safely managed) */
+
+    private function fillQ1SectionF(Worksheet $sheet, array $envi): void
+    {
+        $w = $envi['water'];
+        $this->put($sheet, 'B251', $w['levelI']        ?? 0);
+        $this->put($sheet, 'B252', $w['levelII']       ?? 0);
+        $this->put($sheet, 'B253', $w['levelIII']      ?? 0);
+        $this->put($sheet, 'B254', $w['safelyManaged'] ?? 0);
+
+        $s = $envi['sanitation'];
+        $this->put($sheet, 'P251', $s['pourFlushSeptic']         ?? 0);
+        $this->put($sheet, 'P252', $s['pourFlushSewer']          ?? 0);
+        $this->put($sheet, 'P253', $s['vip']                     ?? 0);
+        $this->put($sheet, 'P254', $s['safelyManagedSanitation'] ?? 0);
+    }
+
+    /* ---- Q1 Section G. Infectious Disease --------------------------------
+     * The Q1 template omits Filariasis and Leprosy sections entirely.
+     * Order: B. Rabies (row 260) → C. Schistosomiasis (264+) → D. STH (302+).
+     * Sex columns: B/C (left), Q/R (right); D/S hold SUM totals.            */
+
+    private function fillQ1SectionG(Worksheet $sheet, array $inf): void
+    {
+        // B. Rabies — row 260
+        $r = $inf['rabies'];
+        $this->putRow($sheet, 260, ['B','C'], $this->sexVals($r['animalBites']  ?? []));
+        $this->putRow($sheet, 260, ['Q','R'], $this->sexVals($r['rabiesDeaths'] ?? []));
+
+        // C. Schistosomiasis — rows 264+ (left B/C, right Q/R)
+        $sc = $inf['schistosomiasis'];
+        $this->putRow($sheet, 264, ['B','C'], $this->sexVals($sc['patientsSeen']          ?? []));
+        $this->putRow($sheet, 270, ['B','C'], $this->sexVals($sc['suspectedCases']        ?? []));
+        $this->putRow($sheet, 289, ['B','C'], $this->sexVals($sc['confirmedComplicated']  ?? []));
+        $this->putRow($sheet, 294, ['B','C'], $this->sexVals($sc['confirmedNonComplicated']??[]));
+        $this->putRow($sheet, 285, ['Q','R'], $this->sexVals($sc['referredToHospital']    ?? []));
+        $this->putRow($sheet, 291, ['Q','R'], $this->sexVals($sc['mdaGiven']              ?? []));
+
+        // D. Soil-Transmitted Helminthiasis — rows 302+ (left B/C, right Q/R)
+        $sth = $inf['sth'];
+        $this->putRow($sheet, 302, ['B','C'], $this->sexVals($sth['screened']             ?? []));
+        $this->putRow($sheet, 309, ['B','C'], $this->sexVals($sth['suspectedResident']    ?? []));
+        $this->putRow($sheet, 310, ['B','C'], $this->sexVals($sth['suspectedNonResident'] ?? []));
+        $this->putRow($sheet, 318, ['B','C'], $this->sexVals($sth['confirmedResident']    ?? []));
+        $this->putRow($sheet, 319, ['B','C'], $this->sexVals($sth['confirmedNonResident'] ?? []));
+        $this->putRow($sheet, 303, ['Q','R'], $this->sexVals($sth['treatedResident']      ?? []));
+        $this->putRow($sheet, 304, ['Q','R'], $this->sexVals($sth['treatedNonResident']   ?? []));
+    }
+
     /* ---- template cover-page header -------------------------------------- */
 
     private function fillHeader(Worksheet $sheet, ?string $month, ?string $year): void

@@ -49,7 +49,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
-            'role' => ['required', Rule::in(['Administrator', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
+            'role' => ['required', Rule::in(['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
             
@@ -77,7 +77,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-            'role' => ['required', Rule::in(['Administrator', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
+            'role' => ['required', Rule::in(['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
             

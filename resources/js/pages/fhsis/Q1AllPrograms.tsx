@@ -1,4 +1,15 @@
 import React, { useState, useMemo } from 'react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
 
 // ─── Location Data Shapes ────────────────────────────────────────────────────
 interface Region { regCode: string; regDesc: string; }
@@ -40,7 +51,9 @@ interface SexBrackets {
 
 interface MaternalCareData {
   prenatal: Record<string, AgeBrackets>;
-  intrapartum: Record<string, SexBrackets>;
+  // Intrapartum/newborn indicators are bucketed by the mother's age bracket
+  // (10-14 / 15-19 / 20-49 / total), same as prenatal and postpartum.
+  intrapartum: Record<string, AgeBrackets>;
   postpartum: Record<string, AgeBrackets>;
 }
 
@@ -68,11 +81,15 @@ interface OralHealthData {
 // Section E (Non-Communicable Diseases) data shape from PhoController@getNonCommunicableDiseaseData
 interface CervicalCancerTotals {
   screened: number; via: number; papSmear: number; hpvDna: number; assessedOnly: number;
-  suspicious: number; linkedToCare: number; linkedTreated: number; linkedReferred: number;
+  suspicious: number; suspiciousLinkedToCare: number; suspiciousLinkedTreated: number; suspiciousLinkedReferred: number;
+  precancerous: number; precancerousLinkedToCare: number; precancerousLinkedTreated: number; precancerousLinkedReferred: number;
 }
 interface BreastCancerTotals {
-  seen: number; highRiskOrSymptomatic: number; providedCbe: number; providedMammogram: number;
-  remarkableCbe: number; remarkableMammogram: number; linkedToCare: number; asymptomaticScreened: number;
+  seen: number; highRiskOrSymptomatic: number;
+  provided: number; providedCbe: number; providedMammogram: number;
+  remarkable: number; remarkableCbe: number; remarkableMammogram: number;
+  linkedToCare: number; linkedToCareCbe: number; linkedToCareMammogram: number;
+  asymptomaticScreened: number; asymptomaticCbe: number; asymptomaticMammogram: number;
 }
 interface NonCommunicableDiseaseData {
   lifestyle2059: Record<string, SexBrackets>;
@@ -82,6 +99,8 @@ interface NonCommunicableDiseaseData {
   dm2059: SexBrackets;
   dm60plus: SexBrackets;
   blindness: Record<string, SexBrackets>;
+  seniorImmunization: Record<string, SexBrackets>;
+  geriatricScreening: Record<string, SexBrackets>;
   mentalHealth: Record<string, SexBrackets>;
   cervical: CervicalCancerTotals;
   breast: BreastCancerTotals;
@@ -103,6 +122,7 @@ interface InfectiousDiseaseData {
   schistosomiasis: Record<string, SexBrackets>;
   sth: Record<string, SexBrackets>;
   leprosy: Record<string, SexBrackets>;
+  hivAidsSti: Record<string, SexBrackets>;
 }
 
 interface Q1AllProgramsProps {
@@ -118,6 +138,7 @@ interface Q1AllProgramsProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -345,20 +366,31 @@ const sumSexBrackets = (
   return found ? result : undefined;
 };
 
+const sumAgeBrackets = (
+  data: Record<string, AgeBrackets> | undefined,
+  keys: string[],
+): AgeBrackets | undefined => {
+  if (!data) return undefined;
+  const result: AgeBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
+  let found = false;
+  keys.forEach((k) => {
+    const b = data[k];
+    if (b) {
+      found = true;
+      result['10-14'] += b['10-14'];
+      result['15-19'] += b['15-19'];
+      result['20-49'] += b['20-49'];
+      result.total += b.total;
+    }
+  });
+  return found ? result : undefined;
+};
+
 const AgeInputsFromData = ({ data }: { data?: AgeBrackets }) => (
   <>
     <InputCell value={data?.['10-14']} />
     <InputCell value={data?.['15-19']} />
     <InputCell value={data?.['20-49']} />
-    <InputCell value={data?.total} />
-  </>
-);
-
-const SexInputsAsFour = ({ data }: { data?: SexBrackets }) => (
-  <>
-    <InputCell value={data?.male} />
-    <InputCell value={data?.female} />
-    <InputCell />
     <InputCell value={data?.total} />
   </>
 );
@@ -517,24 +549,30 @@ const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
 
           {/* Intrapartum */}
           <tr className="bg-gray-100">
-            <Th className="text-left" colSpan={6}>INTRAPARTUM AND NEWBORN CARE — Indicators / 10-14 / 15-19 / 20-49 / TOTAL / Remarks</Th>
-            <Th className="text-left" colSpan={6}>Indicators / 10-14 | 15-19 | 20-49 | TOTAL | Remarks</Th>
+            <Th className="text-left" colSpan={6}>INTRAPARTUM AND NEWBORN CARE</Th>
+            <Th className="text-left" colSpan={6}>&nbsp;</Th>
+          </tr>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
           </tr>
           {Array.from({ length: maxIntra }).map((_, i) => {
             const [lLabel, lIndent] = intraLeft[i] ?? ['', 1];
             const [rLabel, rIndent] = intraRight[i] ?? ['', 1];
             const lKeys = intraLeftValueKeys[i];
             const rKeys = intraRightValueKeys[i];
-            const lData = Array.isArray(lKeys) ? sumSexBrackets(intrapartum, lKeys) : intrapartum?.[lKeys ?? ''];
-            const rData = Array.isArray(rKeys) ? sumSexBrackets(intrapartum, rKeys) : intrapartum?.[rKeys ?? ''];
+            const lData = Array.isArray(lKeys) ? sumAgeBrackets(intrapartum, lKeys) : intrapartum?.[lKeys ?? ''];
+            const rData = Array.isArray(rKeys) ? sumAgeBrackets(intrapartum, rKeys) : intrapartum?.[rKeys ?? ''];
             return (
               <tr key={i}>
                 <Td className={`w-1/4 ${indentClass(lIndent)}`}>{lLabel}</Td>
-                {lLabel ? <><SexInputsAsFour data={lData} /><InputCell /></> :
+                {lLabel ? <><AgeInputsFromData data={lData} /><InputCell /></> :
                   <td colSpan={5} className="border border-gray-400"></td>}
                 <Td className={`w-1/4 ${indentClass(rIndent)}`}>{rLabel}</Td>
-                {rLabel ? <><SexInputsAsFour data={rData} /><InputCell /></> :
-                  <td colSpan={5} className="border border-gray-400"></td>}
+                {rLabel ? <><AgeInputsFromData data={rData} /><InputCell /></> :
+                <td colSpan={5} className="border border-gray-400"></td>}
               </tr>
             );
           })}
@@ -942,6 +980,14 @@ const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonComm
     '5. Women aged 30-65 years old found positive for precancerous lesions and linked to care',
     '5a. Treated', '5b. Referred',
   ];
+  // Index-aligned with cervicalLeft. '3a./3b. Treated/Referred' and '5a./5b.
+  // Treated/Referred' share identical label text, so they can only be told
+  // apart by position — not by matching the label string.
+  const cervicalKeyOrder: (keyof CervicalCancerTotals)[] = [
+    'screened', 'via', 'papSmear', 'hpvDna', 'assessedOnly',
+    'suspicious', 'suspiciousLinkedToCare', 'suspiciousLinkedTreated', 'suspiciousLinkedReferred',
+    'precancerous', 'precancerousLinkedToCare', 'precancerousLinkedTreated', 'precancerousLinkedReferred',
+  ];
   const breastRight = [
     '1. Number of 30-69 years old women seen',
     '2. Number of high-risk and/or symptomatic women',
@@ -953,6 +999,15 @@ const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonComm
     '5a. Clinical Breast Examination', '5b. Mammogram',
     '6. Asymptomatic women aged 50-69 years old screened for breast cancer',
     '6a. Clinical Breast Examination', '6b. Mammogram',
+  ];
+  // Index-aligned with breastRight, for the same reason as cervicalKeyOrder:
+  // 'Clinical Breast Examination' / 'Mammogram' repeat under items 3, 4 and 5.
+  const breastKeyOrder: (keyof BreastCancerTotals)[] = [
+    'seen', 'highRiskOrSymptomatic',
+    'provided', 'providedCbe', 'providedMammogram',
+    'remarkable', 'remarkableCbe', 'remarkableMammogram',
+    'linkedToCare', 'linkedToCareCbe', 'linkedToCareMammogram',
+    'asymptomaticScreened', 'asymptomaticCbe', 'asymptomaticMammogram',
   ];
 
   const maxEye = Math.max(eyeLeft.length, eyeRight.length);
@@ -1023,15 +1078,64 @@ const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonComm
               if (label.startsWith('1c.')) return 'screened20_59';
               if (label.startsWith('1d.')) return 'screened60plus';
               if (label === '2. Screened and identified with eye disease/s') return 'identified';
+              if (label.startsWith('2a1.')) return 'identifiedVision0_9';
+              if (label.startsWith('2a2.')) return 'identifiedAppearance0_9';
+              if (label.startsWith('2a3.')) return 'identifiedInjury0_9';
+              if (label.startsWith('2a4.')) return 'identifiedRoutine0_9';
+              if (label.startsWith('2a.')) return 'identified0_9';
+              if (label.startsWith('2b1.')) return 'identifiedVision10_19';
+              if (label.startsWith('2b2.')) return 'identifiedAppearance10_19';
+              if (label.startsWith('2b3.')) return 'identifiedInjury10_19';
+              if (label.startsWith('2b4.')) return 'identifiedRoutine10_19';
+              if (label.startsWith('2b.')) return 'identified10_19';
+              if (label.startsWith('2c1.')) return 'identifiedVision20_59';
+              if (label.startsWith('2c2.')) return 'identifiedAppearance20_59';
+              if (label.startsWith('2c3.')) return 'identifiedInjury20_59';
+              if (label.startsWith('2c4.')) return 'identifiedRoutine20_59';
+              if (label.startsWith('2c.')) return 'identified20_59';
+              if (label.startsWith('2d1.')) return 'identifiedVision60plus';
+              if (label.startsWith('2d2.')) return 'identifiedAppearance60plus';
+              if (label.startsWith('2d3.')) return 'identifiedInjury60plus';
+              if (label.startsWith('2d4.')) return 'identifiedRoutine60plus';
+              if (label.startsWith('2d.')) return 'identified60plus';
               if (label === '3. Identified with eye disease/s and referred to an eye health professional') return 'referred';
+              if (label.startsWith('3a.')) return 'referred0_9';
+              if (label.startsWith('3b.')) return 'referred10_19';
+              if (label.startsWith('3c.')) return 'referred20_59';
+              if (label.startsWith('3d.')) return 'referred60plus';
               return undefined;
             };
-            const lKey = blindnessKey(l);
-            const rKey = blindnessKey(r);
-            const lData = lKey ? nonCommunicableDisease?.blindness?.[lKey] : undefined;
-            const rData = rKey ? nonCommunicableDisease?.blindness?.[rKey] : undefined;
+            // E5. Senior Immunization
+            const immunizationKey = (label: string): string | undefined => {
+              if (label === '1. Senior Citizens Seen who had not previously received PPV upon reaching 60 years old') return 'ppvNotPreviouslyReceived';
+              if (label === '2. Senior citizens aged 60 years old and above who received one (1) dose of Pneumococcal Polysaccharide Vaccine') return 'ppvGiven';
+              if (label === '3. Senior Citizens Seen') return 'seniorsSeen';
+              if (label === '4. Senior citizens aged 60 years old and above who received one (1) dose of Influenza Vaccine') return 'influenzaGiven';
+              return undefined;
+            };
+            // E6. Geriatric Screening
+            const geriatricKey = (label: string): string | undefined => {
+              if (label === 'a. Senior Citizens screened using the geriatric screening tool') return 'screened';
+              if (label === 'b. Senior Citizens with a positive geriatric screening result') return 'positive';
+              if (label === 'b1. Memory') return 'memory';
+              if (label === 'b2. Depression') return 'depression';
+              if (label === 'b3. Polypharmacy') return 'polypharmacy';
+              if (label === 'b4. Urinary Incontinence') return 'urinaryIncontinence';
+              return undefined;
+            };
+            const resolveData = (label: string) => {
+              const bKey = blindnessKey(label);
+              if (bKey) return nonCommunicableDisease?.blindness?.[bKey];
+              const iKey = immunizationKey(label);
+              if (iKey) return nonCommunicableDisease?.seniorImmunization?.[iKey];
+              const gKey = geriatricKey(label);
+              if (gKey) return nonCommunicableDisease?.geriatricScreening?.[gKey];
+              return undefined;
+            };
+            const lData = resolveData(l);
+            const rData = resolveData(r);
             return (
-              <tr key={i} className={l.startsWith('E5') || l.startsWith('E6') ? 'bg-blue-50 font-bold' : ''}>
+              <tr key={i} className={(l.startsWith('E5') || l.startsWith('E6') || r.startsWith('E5') || r.startsWith('E6')) ? 'bg-blue-50 font-bold' : ''}>
                 <Td className="pl-4 w-5/12">{l}</Td>
                 {l ? <><SexInputsFromData data={lData} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
                 <Td className="pl-4 w-5/12">{r}</Td>
@@ -1066,43 +1170,20 @@ const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonComm
             <Th colSpan={4}>Total / Remarks</Th>
           </tr>
           {(() => {
-            const cervicalValue = (label: string): number | undefined => {
-              const c = nonCommunicableDisease?.cervical;
-              if (!c) return undefined;
-              if (label.startsWith('1. Women aged 30-65')) return c.screened;
-              if (label === '1a. VIA') return c.via;
-              if (label === '2a. PapSmear') return c.papSmear;
-              if (label === '3a. HPV DNA') return c.hpvDna;
-              if (label === '4a. Assessed Only') return c.assessedOnly;
-              if (label.startsWith('2. Women aged 30-65')) return c.suspicious;
-              if (label.startsWith('3. Women aged 30-65')) return c.linkedToCare;
-              if (label === '3a. Treated') return c.linkedTreated;
-              if (label === '3b. Referred') return c.linkedReferred;
-              return undefined;
-            };
-            const breastValue = (label: string): number | undefined => {
-              const b = nonCommunicableDisease?.breast;
-              if (!b) return undefined;
-              if (label.startsWith('1. Number of 30-69')) return b.seen;
-              if (label.startsWith('2. Number of high-risk')) return b.highRiskOrSymptomatic;
-              if (label === '3a. Clinical Breast Examination') return b.providedCbe;
-              if (label === '3b. Mammogram') return b.providedMammogram;
-              if (label === '4a. Clinical Breast Examination') return b.remarkableCbe;
-              if (label === '4b. Mammogram') return b.remarkableMammogram;
-              if (label.startsWith('5. High-risk')) return b.linkedToCare;
-              if (label.startsWith('6. Asymptomatic')) return b.asymptomaticScreened;
-              return undefined;
-            };
             return Array.from({ length: maxCancer }).map((_, i) => {
               const l = cervicalLeft[i] ?? '';
               const r = breastRight[i] ?? '';
+              const cKey = cervicalKeyOrder[i];
+              const bKey = breastKeyOrder[i];
+              const cValue = l && cKey ? nonCommunicableDisease?.cervical?.[cKey] : undefined;
+              const bValue = r && bKey ? nonCommunicableDisease?.breast?.[bKey] : undefined;
               return (
                 <tr key={i}>
                   <Td className="pl-4 w-5/12">{l}</Td>
-                  {l ? <><InputCell value={cervicalValue(l)} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  {l ? <><InputCell value={cValue} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
                   <td colSpan={2} className="border border-gray-400"></td>
                   <Td className="pl-4 w-5/12">{r}</Td>
-                  {r ? <><InputCell value={breastValue(r)} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  {r ? <><InputCell value={bValue} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
                   <td colSpan={2} className="border border-gray-400"></td>
                 </tr>
               );
@@ -1169,30 +1250,78 @@ const filariasisKeyMap: Record<string, string> = {
   '3. Hydrocele': 'hydrocele',
   '4. Number of individuals who received Mass Drug Administration': 'receivedMda',
 };
-const schistoKeyMap: Record<string, string> = {
-  '1. Patients Seen': 'patientsSeen',
-  '2. Clinical/Suspected Schistosomiasis Cases Seen': 'suspectedCases',
-  '13. Confirmed Schistosomiasis Cases Referred to Hospital Facility': 'referredToHospital',
-  '14. Individuals dewormed with one (1) dose of Praziquantel during MDA': 'mdaGiven',
+// Resolves a schistosomiasis row label (e.g. "8a. 5-14 years old") to its data
+// key by extracting the leading item token ("8a"), since sub-row label text
+// repeats across items (many rows just say "5-14 years old" etc).
+const schistoTokenKeyMap: Record<string, string> = {
+  '1': 'patientsSeen', '1a': 'patientsSeen1_4', '1b': 'patientsSeen5_14', '1c': 'patientsSeen15_19', '1d': 'patientsSeen20_59', '1e': 'patientsSeen60plus',
+  '2': 'suspectedCases', '2a': 'suspectedCases1_4', '2b': 'suspectedCases5_14', '2c': 'suspectedCases15_19', '2d': 'suspectedCases20_59', '2e': 'suspectedCases60plus',
+  '3': 'treatedByAge', '3a': 'treated5_14', '3b': 'treated15_19', '3c': 'treated20_59', '3d': 'treated60plus',
+  '4a': 'treatedFirst', '4b': 'treatedRetreatment',
+  '5': 'cured', '5a': 'cured5_14', '5b': 'cured15_19', '5c': 'cured20_59', '5d': 'cured60plus',
+  '6': 'complicated', '6a': 'complicated1_4', '6b': 'complicated5_14', '6c': 'complicated15_19', '6d': 'complicated20_59', '6e': 'complicated60plus',
+  '7': 'nonComplicated', '7a': 'nonComplicated1_4', '7b': 'nonComplicated5_14', '7c': 'nonComplicated15_19', '7d': 'nonComplicated20_59', '7e': 'nonComplicated60plus',
+  '8': 'complicatedTreated', '8a': 'complicatedTreated5_14', '8b': 'complicatedTreated15_19', '8c': 'complicatedTreated20_59', '8d': 'complicatedTreated60plus',
+  '9': 'nonComplicatedTreated', '9a': 'nonComplicatedTreated5_14', '9b': 'nonComplicatedTreated15_19', '9c': 'nonComplicatedTreated20_59', '9d': 'nonComplicatedTreated60plus',
+  '10a': 'confirmedTreatedFirst', '10b': 'confirmedTreatedRetreatment',
+  '11': 'complicatedCured', '11a': 'complicatedCured5_14', '11b': 'complicatedCured15_19', '11c': 'complicatedCured20_59', '11d': 'complicatedCured60plus',
+  '12': 'nonComplicatedCured', '12a': 'nonComplicatedCured5_14', '12b': 'nonComplicatedCured15_19', '12c': 'nonComplicatedCured20_59', '12d': 'nonComplicatedCured60plus',
+  '13': 'referredToHospital', '13a': 'referredToHospital1_4', '13b': 'referredToHospital5_14', '13c': 'referredToHospital15_19', '13d': 'referredToHospital20_59', '13e': 'referredToHospital60plus',
+  '14': 'mdaGiven', '14a': 'mdaGiven5_14', '14b': 'mdaGiven15_19', '14c': 'mdaGiven20_59', '14d': 'mdaGiven60plus',
 };
-const sthKeyMap: Record<string, string> = {
-  '1. Screened for STH': 'screened',
-  '2a. Resident': 'suspectedResident',
-  '2b. Non-Resident': 'suspectedNonResident',
-  '4a. Resident': 'confirmedResident',
-  '4b. Non-Resident': 'confirmedNonResident',
-  '6a. Resident': 'treatedResident',
-  '6b. Non-Resident': 'treatedNonResident',
-  '8. 1-4 years old who were dewormed during January MDA': 'januaryMda',
-  '9. 1-4 years old who were dewormed during July MDA': 'julyMda',
+const schistoKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-e]?)\./)?.[1];
+  return token ? schistoTokenKeyMap[token] : undefined;
 };
-const leprosyKeyMap: Record<string, string> = {
-  '1. No. of registered Leprosy cases': 'registered',
-  '2. No. of newly detected case': 'newlyDetected',
-  '3. Confirmed Leprosy Cases': 'confirmed',
-  '4. Completed fixed duration Multi-Drug Therapy (MDT)': 'completedMdt',
-  '5. No. of confirmed leprosy cases treated': 'treated',
-  '6. Newly Detected Cases with Grade 2 Disabilities': 'grade2Disability',
+// Token-based like the schistosomiasis map: sub-row labels repeat across items
+// ("Resident", "School-Based deworming services", "5-14 years old"), so rows are
+// resolved by their leading item token ("8a", "12b") rather than label text.
+const sthTokenKeyMap: Record<string, string> = {
+  '1': 'screened', '1a': 'screened1_4', '1b': 'screened5_14', '1c': 'screened15_19', '1d': 'screened20_59', '1e': 'screened60plus',
+  '2': 'suspected', '2a': 'suspectedResident', '2b': 'suspectedNonResident',
+  '3': 'suspected', '3a': 'suspected1_4', '3b': 'suspected5_14', '3c': 'suspected15_19', '3d': 'suspected20_59', '3e': 'suspected60plus',
+  '4': 'confirmed', '4a': 'confirmedResident', '4b': 'confirmedNonResident',
+  '5': 'confirmed', '5a': 'confirmed1_4', '5b': 'confirmed5_14', '5c': 'confirmed15_19', '5d': 'confirmed20_59', '5e': 'confirmed60plus',
+  '6': 'treated', '6a': 'treatedResident', '6b': 'treatedNonResident',
+  '7': 'treated', '7a': 'treated1_4', '7b': 'treated5_14', '7c': 'treated15_19', '7d': 'treated20_59', '7e': 'treated60plus',
+  '8': 'januaryMda1_4', '8a': 'januaryMda1_4School', '8b': 'januaryMda1_4Community',
+  '9': 'julyMda1_4', '9a': 'julyMda1_4School', '9b': 'julyMda1_4Community',
+  '10': 'januaryMda5_14', '10a': 'januaryMda5_14School', '10b': 'januaryMda5_14Community',
+  '11': 'julyMda5_14', '11a': 'julyMda5_14School', '11b': 'julyMda5_14Community',
+  '12': 'adolescentMda', '12a': 'adolescentJanuaryMda', '12b': 'adolescentJulyMda',
+};
+const sthKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-e]?)\./)?.[1];
+  return token ? sthTokenKeyMap[token] : undefined;
+};
+// Token-based like schisto/STH: sub-row labels ("0-14 years old" etc.) repeat
+// across items 1/2/3/4/5/6, so rows are resolved by leading item token.
+const leprosyTokenKeyMap: Record<string, string> = {
+  '1': 'registered', '1a': 'registered0_14', '1b': 'registered15_18', '1c': 'registered19plus',
+  '2': 'newlyDetected', '2a': 'newlyDetected0_14', '2b': 'newlyDetected15_18', '2c': 'newlyDetected19plus',
+  '3': 'confirmed', '3a': 'confirmed0_14', '3b': 'confirmed15_18', '3c': 'confirmed19plus',
+  '4': 'completedMdt', '4a': 'completedMdt0_14', '4b': 'completedMdt15_18', '4c': 'completedMdt19plus',
+  '5': 'treated', '5a': 'treated0_14', '5b': 'treated15_18', '5c': 'treated19plus',
+  '6': 'grade2Disability', '6a': 'grade2Disability0_14', '6b': 'grade2Disability15_18', '6c': 'grade2Disability19plus',
+};
+const leprosyKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-c]?)\./)?.[1];
+  return token ? leprosyTokenKeyMap[token] : undefined;
+};
+// F. HIV-AIDS/STI: token-based for the same reason ("10-14 years old" etc.
+// repeats across items 1-7).
+const hivTokenKeyMap: Record<string, string> = {
+  '1': 'syphilisScreened', '1a': 'syphilisScreened10_14', '1b': 'syphilisScreened15_19', '1c': 'syphilisScreened20_49',
+  '2': 'syphilisReactive', '2a': 'syphilisReactive10_14', '2b': 'syphilisReactive15_19', '2c': 'syphilisReactive20_49',
+  '3': 'syphilisTreated', '3a': 'syphilisTreated10_14', '3b': 'syphilisTreated15_19', '3c': 'syphilisTreated20_49',
+  '4': 'hivScreened', '4a': 'hivScreened10_14', '4b': 'hivScreened15_19', '4c': 'hivScreened20_49',
+  '5': 'hivReactive', '5a': 'hivReactive10_14', '5b': 'hivReactive15_19', '5c': 'hivReactive20_49',
+  '6': 'hepBScreened', '6a': 'hepBScreened10_14', '6b': 'hepBScreened15_19', '6c': 'hepBScreened20_49',
+  '7': 'hepBReactive', '7a': 'hepBReactive10_14', '7b': 'hepBReactive15_19', '7c': 'hepBReactive20_49',
+};
+const hivKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-c]?)\./)?.[1];
+  return token ? hivTokenKeyMap[token] : undefined;
 };
 const infectiousDataFor = (
   dataset: Record<string, SexBrackets> | undefined,
@@ -1229,7 +1358,7 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
     '2. Clinical/Suspected Schistosomiasis Cases Seen',
     '2a. 1-4 years old', '2b. 5-14 yrs old', '2c. 15-19 yrs old', '2d. 20-59 yrs old', '2e. 60 yrs old and above',
     '3. Clinical/Suspected Schistosomiasis Cases Treated by age group',
-    '3a. 5-14 years old', '3a. 15-19 years old', '3a. 20-59 years old', '3a. 60 years old and above',
+    '3a. 5-14 years old', '3b. 15-19 years old', '3c. 20-59 years old', '3d. 60 years old and above',
     '4. Clinical/Suspected Schistosomiasis Cases Treated by treatment type',
     '4a. 1st treatment', '4b. Retreatment',
     '5. Clinical/Suspected Schistosomiasis Cases Cured',
@@ -1347,9 +1476,9 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
           {Array.from({ length: maxSch }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{schLeft[i] ?? ''}</Td>
-              {schLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.schistosomiasis, schistoKeyMap, schLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {schLeft[i] ? <><SexInputsFromData data={schLeft[i] ? infectiousDisease?.schistosomiasis?.[schistoKeyFor(schLeft[i]) ?? ''] : undefined} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{schRight[i] ?? ''}</Td>
-              {schRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.schistosomiasis, schistoKeyMap, schRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {schRight[i] ? <><SexInputsFromData data={schRight[i] ? infectiousDisease?.schistosomiasis?.[schistoKeyFor(schRight[i]) ?? ''] : undefined} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
@@ -1361,9 +1490,9 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
           {Array.from({ length: maxSth }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{sthLeft[i] ?? ''}</Td>
-              {sthLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.sth, sthKeyMap, sthLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {sthLeft[i] ? <><SexInputsFromData data={infectiousDisease?.sth?.[sthKeyFor(sthLeft[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{sthRight[i] ?? ''}</Td>
-              {sthRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.sth, sthKeyMap, sthRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {sthRight[i] ? <><SexInputsFromData data={infectiousDisease?.sth?.[sthKeyFor(sthRight[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
@@ -1375,9 +1504,9 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
           {Array.from({ length: maxLep }).map((_, i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{lepLeft[i] ?? ''}</Td>
-              {lepLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.leprosy, leprosyKeyMap, lepLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {lepLeft[i] ? <><SexInputsFromData data={infectiousDisease?.leprosy?.[leprosyKeyFor(lepLeft[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{lepRight[i] ?? ''}</Td>
-              {lepRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.leprosy, leprosyKeyMap, lepRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {lepRight[i] ? <><SexInputsFromData data={infectiousDisease?.leprosy?.[leprosyKeyFor(lepRight[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
 
@@ -1389,9 +1518,9 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
           {hivRows.map(([l, r], i) => (
             <tr key={i}>
               <Td className="pl-4 w-5/12">{l}</Td>
-              {l ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {l ? <><SexInputsFromData data={infectiousDisease?.hivAidsSti?.[hivKeyFor(l) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
               <Td className="pl-4 w-5/12">{r}</Td>
-              {r ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              {r ? <><SexInputsFromData data={infectiousDisease?.hivAidsSti?.[hivKeyFor(r) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
             </tr>
           ))}
         </tbody>
@@ -1449,17 +1578,36 @@ const SectionH = () => (
 export default function Q1AllPrograms({
   familyPlanning, maternalCare, childCare,
   oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
-  regions = [], provinces = [], municipalities = [], barangays = []
+  regions = [], provinces = [], municipalities = [], barangays = [],
+  onApplyFilter,
 }: Q1AllProgramsProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Only Administrators and DOH users may change location filters;
+  // all other roles see their assigned location as read-only.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+
   const [activeSection, setActiveSection] = useState<string>('all');
 
-  // Form State Values
-  const [selectedQuarter, setSelectedQuarter] = useState('');
+  // Static Quarter Array — defined early so useState initialisers can reference it
+  const quarters = [
+    "1st Quarter (Jan - Mar)",
+    "2nd Quarter (Apr - Jun)",
+    "3rd Quarter (Jul - Sep)",
+    "4th Quarter (Oct - Dec)",
+  ];
+
+  // Form State Values — quarter & year default to current; location pre-filled from logged-in user
+  const [selectedQuarter, setSelectedQuarter] = useState(quarters[Math.floor(new Date().getMonth() / 3)]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-  const [selectedRegion, setSelectedRegion] = useState('');
-  const [selectedProvince, setSelectedProvince] = useState('');
-  const [selectedMunicipality, setSelectedMunicipality] = useState('');
-  const [selectedBarangay, setSelectedBarangay] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState(user?.region_code ?? '');
+  const [selectedProvince, setSelectedProvince] = useState(user?.province_code ?? '');
+  const [selectedMunicipality, setSelectedMunicipality] = useState(user?.municipality_code ?? '');
+  // Barangay is multi-select — user may be assigned several codes (stored as array on user model)
+  const [selectedBarangays, setSelectedBarangays] = useState<string[]>(
+    parseArray(user?.barangay_codes)
+  );
 
   // ─── Live Family Planning Report Data (fetched from PhoReportController@familyPlaning) ───
   const [familyPlanningData, setFamilyPlanningData] = useState<FamilyPlanningData | undefined>(familyPlanning);
@@ -1509,14 +1657,6 @@ export default function Q1AllPrograms({
     return barangays.filter(b => b.citymunCode === selectedMunicipality);
   }, [selectedMunicipality, barangays]);
 
-  // Static Quarter Array Mapping (Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec)
-  const quarters = [
-    "1st Quarter (Jan - Mar)",
-    "2nd Quarter (Apr - Jun)",
-    "3rd Quarter (Jul - Sep)",
-    "4th Quarter (Oct - Dec)",
-  ];
-
   // ─── Filter -> API Query Builder (shared: quarter/year/region/province/municipality/barangay) ───
   const buildReportQuery = () => {
     const params = new URLSearchParams();
@@ -1530,7 +1670,8 @@ export default function Q1AllPrograms({
     if (selectedRegion) params.set('region', selectedRegion);
     if (selectedProvince) params.set('province', selectedProvince);
     if (selectedMunicipality) params.set('municipality', selectedMunicipality);
-    if (selectedBarangay) params.set('barangay', selectedBarangay);
+    // Send every selected barangay code as barangay[]
+    selectedBarangays.forEach(code => params.append('barangay[]', code));
 
     return params.toString();
   };
@@ -1663,6 +1804,12 @@ export default function Q1AllPrograms({
 
   // ─── Apply Filters -> fetch every report tied to a live endpoint ─────────
   const applyFilters = async () => {
+    // Q1 reports by quarter, not month — use the quarter's first month
+    // (Q1→01, Q2→04, Q3→07, Q4→10) as the reporting period for submission.
+    const quarterIndex = quarters.indexOf(selectedQuarter);
+    const quarterFirstMonth = quarterIndex !== -1 ? quarterIndex * 3 + 1 : new Date().getMonth() + 1;
+    const monthCode = String(quarterFirstMonth).padStart(2, '0');
+    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()));
     await Promise.all([
       fetchFamilyPlanningReport(),
       fetchMaternalCareReport(),
@@ -1716,14 +1863,15 @@ export default function Q1AllPrograms({
       {/* Col 2: Region & Province Nodes */}
       <div className="space-y-2">
         <label className="block font-semibold text-gray-700">Region</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedRegion}
+          disabled={isLocationLocked}
           onChange={(e) => {
             setSelectedRegion(e.target.value);
             setSelectedProvince('');
             setSelectedMunicipality('');
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Region</option>
@@ -1731,14 +1879,14 @@ export default function Q1AllPrograms({
         </select>
 
         <label className="block font-semibold text-gray-700 mt-2">Province</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked || !selectedRegion ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedProvince}
-          disabled={!selectedRegion}
+          disabled={isLocationLocked || !selectedRegion}
           onChange={(e) => {
             setSelectedProvince(e.target.value);
             setSelectedMunicipality('');
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Province</option>
@@ -1749,29 +1897,71 @@ export default function Q1AllPrograms({
       {/* Col 3: Municipality & Barangay Leaf Nodes */}
       <div className="space-y-2">
         <label className="block font-semibold text-gray-700">Municipality / City</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked || !selectedProvince ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedMunicipality}
-          disabled={!selectedProvince}
+          disabled={isLocationLocked || !selectedProvince}
           onChange={(e) => {
             setSelectedMunicipality(e.target.value);
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Municipality</option>
           {filteredMunicipalities.map(m => <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>)}
         </select>
 
-        <label className="block font-semibold text-gray-700 mt-2">Barangay</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
-          value={selectedBarangay}
-          disabled={!selectedMunicipality}
-          onChange={(e) => setSelectedBarangay(e.target.value)}
-        >
-          <option value="">Select Barangay</option>
-          {filteredBarangays.map(b => <option key={b.brgyCode} value={b.brgyCode}>{b.brgyDesc}</option>)}
-        </select>
+        <div className="flex items-center justify-between mt-2">
+          <label className="block font-semibold text-gray-700">
+            Barangay
+            <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+              {selectedBarangays.length} selected
+            </span>
+          </label>
+          {/* All / Clear only shown to users who can change location */}
+          {!isLocationLocked && filteredBarangays.length > 0 && (
+            <div className="flex gap-2 text-[10px] font-medium">
+              <button
+                type="button"
+                onClick={() => setSelectedBarangays(filteredBarangays.map(b => b.brgyCode))}
+                className="text-blue-600 hover:text-blue-800 transition"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBarangays([])}
+                className="text-gray-400 hover:text-gray-700 transition"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+        <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!selectedMunicipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+          {filteredBarangays.length === 0 ? (
+            <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+          ) : (
+            filteredBarangays.map(b => (
+              <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  value={b.brgyCode}
+                  checked={selectedBarangays.includes(b.brgyCode)}
+                  disabled={isLocationLocked}
+                  onChange={(e) => {
+                    setSelectedBarangays(prev =>
+                      e.target.checked
+                        ? [...prev, b.brgyCode]
+                        : prev.filter(c => c !== b.brgyCode)
+                    );
+                  }}
+                  className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                />
+                <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+              </label>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Col 4: Apply Filters -> PhoReportController@familyPlaning */}
@@ -1794,8 +1984,10 @@ export default function Q1AllPrograms({
           (familyPlanningData || maternalCareData || childCareData || oralHealthData || nonCommunicableDiseaseData || environmentalHealthData || infectiousDiseaseData) && (
           <span className="text-gray-500 text-xs">
             Showing data for {selectedQuarter || quarters[Math.floor(new Date().getMonth() / 3)]} {selectedYear}
-            {selectedBarangay && filteredBarangays.find(b => b.brgyCode === selectedBarangay)
-              ? ` · ${filteredBarangays.find(b => b.brgyCode === selectedBarangay)?.brgyDesc}`
+            {selectedBarangays.length > 0
+              ? ` · ${selectedBarangays.length === 1
+                  ? filteredBarangays.find(b => b.brgyCode === selectedBarangays[0])?.brgyDesc ?? selectedBarangays[0]
+                  : `${selectedBarangays.length} barangays`}`
               : selectedMunicipality && filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)
                 ? ` · ${filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)?.citymunDesc}`
                 : ''}
@@ -1820,12 +2012,12 @@ export default function Q1AllPrograms({
           >
             Download Q1 (.xlsx)
           </a>
-          <button
+          {/* <button
             onClick={() => window.print()}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
           >
             Export / Print
-          </button>
+          </button> */}
         </div>
       </div>
 

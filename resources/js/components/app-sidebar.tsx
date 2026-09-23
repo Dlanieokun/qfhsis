@@ -20,7 +20,7 @@ import { type SharedData } from '@/types';
 const NAV_ITEMS = [
     { label: 'Dashboard',        href: '/qfhsis/public/fhsis/dashboard',         icon: LayoutDashboard },
     { label: 'PHO Forms',        href: '/qfhsis/public/fhsis/pho',               icon: FileText },
-    { label: 'Nurse Submittion', href: '/qfhsis/public/fhsis/public-nurse',      icon: ClipboardList },
+    // { label: 'Nurse Submittion', href: '/qfhsis/public/fhsis/public-nurse',      icon: ClipboardList },
     { label: 'General Report',   href: '/qfhsis/public/fhsis/reports',           icon: BarChart3 },
     { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
 ];

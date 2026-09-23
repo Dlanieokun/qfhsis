@@ -3,6 +3,7 @@
 use App\Http\Controllers\FhsisReportController;
 use App\Http\Controllers\PhoController;
 use App\Http\Controllers\PublicNurseController;
+use App\Http\Controllers\SubmitProgramReportController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
@@ -74,6 +75,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');
     Route::get('/fhsis/reports/export-q1-all', [PublicNurseController::class, 'q1AllDownload'])->name('fhsis.reports.q1AllDownload');
     Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
+
+    Route::get('/api/reports/submit-program-report', [SubmitProgramReportController::class, 'index']);
+    Route::post('/api/reports/submit-program-report', [SubmitProgramReportController::class, 'store']);
+    Route::get('/api/reports/submit-program-report/{submitProgramReport}', [SubmitProgramReportController::class, 'show']);
+    Route::delete('/api/reports/submit-program-report/{submitProgramReport}', [SubmitProgramReportController::class, 'destroy']);
 
     Route::get('/fhsis/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
         ->name('dashboard');

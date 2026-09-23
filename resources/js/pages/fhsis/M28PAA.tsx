@@ -1,4 +1,15 @@
 import React, { useMemo, useState } from 'react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
 
 // ─── Location Data Shapes ────────────────────────────────────────────────────
 interface Region { regCode: string; regDesc: string; }
@@ -11,6 +22,7 @@ interface M28PAAProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -127,141 +139,6 @@ const months = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
-
-const FormHeader = ({
-  regions,
-  provinces,
-  municipalities,
-  barangays,
-}: {
-  regions: Region[];
-  provinces: Province[];
-  municipalities: Municipality[];
-  barangays: Barangay[];
-}) => {
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-  const [selectedRegion, setSelectedRegion] = useState('');
-  const [selectedProvince, setSelectedProvince] = useState('');
-  const [selectedMunicipality, setSelectedMunicipality] = useState('');
-  const [selectedBarangay, setSelectedBarangay] = useState('');
-
-  const filteredProvinces = useMemo(
-    () => provinces.filter((p) => p.regCode === selectedRegion),
-    [selectedRegion, provinces],
-  );
-  const filteredMunicipalities = useMemo(
-    () => municipalities.filter((m) => m.provCode === selectedProvince),
-    [selectedProvince, municipalities],
-  );
-  const filteredBarangays = useMemo(
-    () => barangays.filter((b) => b.citymunCode === selectedMunicipality),
-    [selectedMunicipality, barangays],
-  );
-
-  return (
-    <div className="mb-4 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm md:grid-cols-3">
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <label className="w-40 shrink-0">FHSIS REPORT for the Month:</label>
-          <select
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-          >
-            <option value="">Select Month</option>
-            {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-40 shrink-0">Year:</label>
-          <input
-            type="text"
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm text-center outline-none focus:border-blue-500"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            placeholder="YYYY"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <label className="w-32 shrink-0">Region:</label>
-          <select
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500"
-            value={selectedRegion}
-            onChange={(e) => {
-              setSelectedRegion(e.target.value);
-              setSelectedProvince('');
-              setSelectedMunicipality('');
-              setSelectedBarangay('');
-            }}
-          >
-            <option value="">Select Region</option>
-            {regions.map((r) => (
-              <option key={r.regCode} value={r.regCode}>{r.regDesc}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-32 shrink-0">Province:</label>
-          <select
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
-            value={selectedProvince}
-            disabled={!selectedRegion}
-            onChange={(e) => {
-              setSelectedProvince(e.target.value);
-              setSelectedMunicipality('');
-              setSelectedBarangay('');
-            }}
-          >
-            <option value="">Select Province</option>
-            {filteredProvinces.map((p) => (
-              <option key={p.provCode} value={p.provCode}>{p.provDesc}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <label className="w-32 shrink-0">Municipality:</label>
-          <select
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
-            value={selectedMunicipality}
-            disabled={!selectedProvince}
-            onChange={(e) => {
-              setSelectedMunicipality(e.target.value);
-              setSelectedBarangay('');
-            }}
-          >
-            <option value="">Select Municipality</option>
-            {filteredMunicipalities.map((m) => (
-              <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-32 shrink-0">Barangay:</label>
-          <select
-            className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
-            value={selectedBarangay}
-            disabled={!selectedMunicipality}
-            onChange={(e) => setSelectedBarangay(e.target.value)}
-          >
-            <option value="">Select Barangay</option>
-            {filteredBarangays.map((b) => (
-              <option key={b.brgyCode} value={b.brgyCode}>{b.brgyDesc}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ─── SECTION A: Child Care — Immunization ─────────────────────────────────────
 
@@ -794,7 +671,8 @@ interface FilterState {
   region: string;
   province: string;
   municipality: string;
-  barangay: string;
+  // Barangay is multi-select — a user may be assigned several barangay codes
+  barangays: string[];
 }
 
 const FilterControls = ({
@@ -868,7 +746,7 @@ const FilterControls = ({
 
       {/* Active Filters Display */}
       {(filterState.month || filterState.year || filterState.region || 
-        filterState.province || filterState.municipality || filterState.barangay) && (
+        filterState.province || filterState.municipality || filterState.barangays.length > 0) && (
         <div className="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-xs">
           <p className="font-semibold text-blue-900 mb-1">Active Filters:</p>
           <div className="flex flex-wrap gap-2">
@@ -897,9 +775,9 @@ const FilterControls = ({
                 Municipality: {filterState.municipality}
               </span>
             )}
-            {filterState.barangay && (
+            {filterState.barangays.length > 0 && (
               <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
-                Barangay: {filterState.barangay}
+                Barangay{filterState.barangays.length > 1 ? 's' : ''}: {filterState.barangays.length} selected
               </span>
             )}
           </div>
@@ -915,16 +793,29 @@ export default function M28PAA({
   provinces = [],
   municipalities = [],
   barangays = [],
+  onApplyFilter,
 }: M28PAAProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Only Administrators and DOH users may change location filters;
+  // all other roles see their assigned location as read-only.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+
+  // Location defaults come from the logged-in user's assigned location.
+  const defaultLocation = {
+    region: user?.region_code ?? '',
+    province: user?.province_code ?? '',
+    municipality: user?.municipality_code ?? '',
+    barangays: parseArray(user?.barangay_codes),
+  };
+
   const [activeSection, setActiveSection] = useState<string>('all');
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(true);
   const [filterState, setFilterState] = useState<FilterState>({
     month: '',
     year: new Date().getFullYear().toString(),
-    region: '',
-    province: '',
-    municipality: '',
-    barangay: '',
+    ...defaultLocation,
   });
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(filterState);
   const [reportData, setReportData] = useState<any>(null);
@@ -944,13 +835,11 @@ export default function M28PAA({
   const show = (id: string) => activeSection === 'all' || activeSection === id;
 
   const handleClearFilters = () => {
+    // Locked users always fall back to their assigned location rather than a blank one.
     const cleared: FilterState = {
       month: '',
       year: new Date().getFullYear().toString(),
-      region: '',
-      province: '',
-      municipality: '',
-      barangay: '',
+      ...defaultLocation,
     };
     setFilterState(cleared);
     setAppliedFilters(cleared);
@@ -982,7 +871,8 @@ export default function M28PAA({
       if (filters.region) params.set('region', filters.region);
       if (filters.province) params.set('province', filters.province);
       if (filters.municipality) params.set('municipality', filters.municipality);
-      if (filters.barangay) params.set('barangay', filters.barangay);
+      // Send every selected barangay code as barangay[]
+      filters.barangays.forEach((code) => params.append('barangay[]', code));
 
       const response = await fetch(`/qfhsis/public/api/reports/m28paa?${params.toString()}`, {
         method: 'GET',
@@ -1007,11 +897,14 @@ export default function M28PAA({
   };
 
   const handleApplyFilters = () => {
+    const monthIndex = months.indexOf(filterState.month);
+    const monthCode = monthIndex !== -1 ? String(monthIndex + 1).padStart(2, '0') : '';
+    onApplyFilter?.(monthCode, filterState.year || String(new Date().getFullYear()));
     setAppliedFilters(filterState);
     fetchReportData(filterState);
   };
 
-  const handleFilterChange = (key: keyof FilterState, value: string) => {
+  const handleFilterChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
     setFilterState((prev) => ({
       ...prev,
       [key]: value,
@@ -1019,21 +912,22 @@ export default function M28PAA({
   };
 
   const handleRegionChange = (value: string) => {
-    handleFilterChange('region', value);
-    handleFilterChange('province', '');
-    handleFilterChange('municipality', '');
-    handleFilterChange('barangay', '');
+    setFilterState((prev) => ({ ...prev, region: value, province: '', municipality: '', barangays: [] }));
   };
 
   const handleProvinceChange = (value: string) => {
-    handleFilterChange('province', value);
-    handleFilterChange('municipality', '');
-    handleFilterChange('barangay', '');
+    setFilterState((prev) => ({ ...prev, province: value, municipality: '', barangays: [] }));
   };
 
   const handleMunicipalityChange = (value: string) => {
-    handleFilterChange('municipality', value);
-    handleFilterChange('barangay', '');
+    setFilterState((prev) => ({ ...prev, municipality: value, barangays: [] }));
+  };
+
+  const toggleBarangay = (code: string, checked: boolean) => {
+    setFilterState((prev) => ({
+      ...prev,
+      barangays: checked ? [...prev.barangays, code] : prev.barangays.filter((c) => c !== code),
+    }));
   };
 
   const filteredProvinces = useMemo(
@@ -1112,8 +1006,9 @@ export default function M28PAA({
             <div className="flex items-center gap-2">
               <label className="w-32 shrink-0 font-medium text-gray-700">Region:</label>
               <select
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500"
+                className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'bg-white'}`}
                 value={filterState.region}
+                disabled={isLocationLocked}
                 onChange={(e) => handleRegionChange(e.target.value)}
               >
                 <option value="">Select Region</option>
@@ -1125,9 +1020,9 @@ export default function M28PAA({
             <div className="flex items-center gap-2">
               <label className="w-32 shrink-0 font-medium text-gray-700">Province:</label>
               <select
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
+                className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filterState.region ? 'opacity-60 cursor-not-allowed' : 'bg-white'}`}
                 value={filterState.province}
-                disabled={!filterState.region}
+                disabled={isLocationLocked || !filterState.region}
                 onChange={(e) => handleProvinceChange(e.target.value)}
               >
                 <option value="">Select Province</option>
@@ -1142,9 +1037,9 @@ export default function M28PAA({
             <div className="flex items-center gap-2">
               <label className="w-32 shrink-0 font-medium text-gray-700">Municipality:</label>
               <select
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
+                className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filterState.province ? 'opacity-60 cursor-not-allowed' : 'bg-white'}`}
                 value={filterState.municipality}
-                disabled={!filterState.province}
+                disabled={isLocationLocked || !filterState.province}
                 onChange={(e) => handleMunicipalityChange(e.target.value)}
               >
                 <option value="">Select Municipality</option>
@@ -1153,19 +1048,51 @@ export default function M28PAA({
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="w-32 shrink-0 font-medium text-gray-700">Barangay:</label>
-              <select
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
-                value={filterState.barangay}
-                disabled={!filterState.municipality}
-                onChange={(e) => handleFilterChange('barangay', e.target.value)}
-              >
-                <option value="">Select Barangay</option>
-                {filteredBarangays.map((b) => (
-                  <option key={b.brgyCode} value={b.brgyCode}>{b.brgyDesc}</option>
-                ))}
-              </select>
+            <div className="flex items-center justify-between mt-1">
+              <label className="font-medium text-gray-700">
+                Barangay
+                <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                  {filterState.barangays.length} selected
+                </span>
+              </label>
+              {/* All / Clear only shown to users who can change location */}
+              {!isLocationLocked && filteredBarangays.length > 0 && (
+                <div className="flex gap-2 text-[10px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setFilterState((prev) => ({ ...prev, barangays: filteredBarangays.map((b) => b.brgyCode) }))}
+                    className="text-blue-600 hover:text-blue-800 transition"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterState((prev) => ({ ...prev, barangays: [] }))}
+                    className="text-gray-400 hover:text-gray-700 transition"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filterState.municipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+              {filteredBarangays.length === 0 ? (
+                <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+              ) : (
+                filteredBarangays.map((b) => (
+                  <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      value={b.brgyCode}
+                      checked={filterState.barangays.includes(b.brgyCode)}
+                      disabled={isLocationLocked}
+                      onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
+                      className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                    />
+                    <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+                  </label>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -17,6 +17,7 @@ return new class extends Migration
             
             $table->string('householdHeadName')->nullable();
             $table->foreignId('userId')->nullable()->constrained('users')->onDelete('cascade');
+            $table->foreignId('profileId')->nullable()->constrained('household_profiles')->onDelete('set null');
 
             // Section 1 - Water Source Booleans
             $table->boolean('waterLevelI')->default(false);

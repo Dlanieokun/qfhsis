@@ -13,7 +13,7 @@ interface User {
     id: number;
     name: string;
     email: string;
-    role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW';
+    role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH';
     status: 'Active' | 'Inactive';
     assigned_facility?: string;
     
@@ -130,12 +130,12 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         setIsModalOpen(true);
 
         if (defaultRegCode) {
-            axios.get(`/api/locations/provinces/${defaultRegCode}`).then(res => {
+            axios.get(`/qfhsis/public/api/locations/provinces/${defaultRegCode}`).then(res => {
                 setProvinces(res.data);
                 const prov = res.data.find((p: LocationItem) => p.provDesc?.includes('LEYTE'));
                 if (prov && prov.provCode) {
                     setData(d => ({ ...d, province_code: prov.provCode, province: prov.provDesc }));
-                    axios.get(`/api/locations/municipalities/${prov.provCode}`).then(munRes => {
+                    axios.get(`/qfhsis/public/api/locations/municipalities/${prov.provCode}`).then(munRes => {
                         setMunicipalities(munRes.data);
                     });
                 }
@@ -166,13 +166,13 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         setIsModalOpen(true);
 
         if (user.region_code) {
-            axios.get(`/api/locations/provinces/${user.region_code}`).then(res => {
+            axios.get(`/qfhsis/public/api/locations/provinces/${user.region_code}`).then(res => {
                 setProvinces(res.data);
                 if (user.province_code) {
-                    axios.get(`/api/locations/municipalities/${user.province_code}`).then(munRes => {
+                    axios.get(`/qfhsis/public/api/locations/municipalities/${user.province_code}`).then(munRes => {
                         setMunicipalities(munRes.data);
                         if (user.municipality_code) {
-                            axios.get(`/api/locations/barangays/${user.municipality_code}`).then(brgyRes => {
+                            axios.get(`/qfhsis/public/api/locations/barangays/${user.municipality_code}`).then(brgyRes => {
                                 setBarangays(brgyRes.data);
                             });
                         }
@@ -307,6 +307,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             'Public Health Nurse': 'bg-emerald-50 text-emerald-700 border-emerald-100/80',
             'BHS': 'bg-amber-50 text-amber-700 border-amber-100/80',
             'BHW': 'bg-purple-50 text-purple-700 border-purple-100/80',
+            'DOH': 'bg-cyan-50 text-cyan-700 border-cyan-100/80',
         };
         return (
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[role] || 'bg-slate-50 text-slate-700 border-slate-100'}`}>
@@ -495,6 +496,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                                         >
                                             <option value="Administrator">Administrator</option>
+                                            <option value="DOH">DOH</option>
                                             <option value="Doctor">Doctor</option>
                                             <option value="Public Health Nurse">Public Health Nurse</option>
                                             <option value="BHS">Midwife</option>

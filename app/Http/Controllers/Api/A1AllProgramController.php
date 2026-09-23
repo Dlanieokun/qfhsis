@@ -1,455 +1,978 @@
-<?php
+import React, { useState, useEffect, useMemo } from 'react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
 
-namespace App\Http\Controllers\Api;
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
 
-use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
-use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\DB;
+// ─── Location Data Shapes ────────────────────────────────────────────────────
+interface Region { regCode: string; regDesc: string; }
+interface Province { provCode: string; provDesc: string; regCode: string; }
+interface Municipality { citymunCode: string; citymunDesc: string; provCode: string; }
+interface Barangay { brgyCode: string; brgyDesc: string; citymunCode: string; }
 
-/**
- * FilteredReportController
- *
- * Handles filtering of M1 reports (All Programs) based on multiple criteria
- * such as year, month, region, province, municipality, and RHU name.
- */
-class A1AllProgramController extends Controller
-{
-    /**
-     * Get filtered M1 all programs report
-     *
-     * Query Parameters:
-     *   - year (optional): Report year (YYYY)
-     *   - month (optional): Report month (MM)
-     *   - region (optional): Filter by region name
-     *   - province (optional): Filter by province name
-     *   - municipality (optional): Filter by municipality name
-     *   - rhu_name (optional): Filter by RHU/health facility name
-     *
-     * @param Request $request
-     * @return JsonResponse
-     */
-    public function filteredM1AllReport(Request $request): JsonResponse
-    {
-        try {
-            $year = $request->query('year');
-            $month = $request->query('month');
-            $region = $request->query('region');
-            $province = $request->query('province');
-            $municipality = $request->query('municipality');
-            $rhuName = $request->query('rhu_name');
+interface A1AllProgramsProps {
+  regions?: Region[];
+  provinces?: Province[];
+  municipalities?: Municipality[];
+  barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
+}
 
-            // Start building the base query - aggregate data from household profiles
-            $query = DB::table('household_profiles')
-                ->select(
-                    'household_profiles.region',
-                    'household_profiles.province',
-                    'household_profiles.municipality',
-                    'household_profiles.barangay',
-                    DB::raw('COUNT(*) as total_households')
-                );
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface FilterState {
+  year?: string;
+  month?: string;
+  region?: string;
+  province?: string;
+  municipality?: string;
+  // Barangay is multi-select — a user may be assigned several barangay codes
+  barangays: string[];
+  rhuName?: string;
+}
 
-            // Apply filters
-            if ($region) {
-                $query->where('household_profiles.region', 'like', "%{$region}%");
-            }
+interface ChildCareData {
+  schoolBasedImmunization?: { male: number; female: number; total: number };
+  nutrition?: { male: number; female: number; total: number };
+}
 
-            if ($province) {
-                $query->where('household_profiles.province', 'like', "%{$province}%");
-            }
+interface NCDData {
+  hypertension?: number;
+  diabetes?: number;
+  smokers?: number;
+}
 
-            if ($municipality) {
-                $query->where('household_profiles.municipality', 'like', "%{$municipality}%");
-            }
+interface InfectiousDiseaseData {
+  filariasis?: { examined: number };
+  leprosy?: { registered: number };
+}
 
-            // Group by geographic hierarchy
-            $locationData = $query->groupBy(
-                'household_profiles.region',
-                'household_profiles.province',
-                'household_profiles.municipality',
-                'household_profiles.barangay'
-            )->get();
+interface FacilityData {
+  locationBreakdown?: any[];
+}
 
-            // Fetch child care data
-            $childCareData = $this->getChildCareData($year, $month, $region, $province, $municipality);
+interface ReportData {
+  'A. Child Care'?: ChildCareData;
+  'B. NCDs'?: NCDData;
+  'G. Infectious Diseases'?: InfectiousDiseaseData;
+  'Facility & Workforce'?: FacilityData;
+  summary?: {
+    year: string;
+    month: string;
+    province: string;
+    rhuName: string;
+    projectedPopulation: number;
+  };
+}
 
-            // Fetch maternal care data
-            $maternalCareData = $this->getMaternalCareData($year, $month, $region, $province, $municipality);
+// ─── Reusable cell helpers ────────────────────────────────────────────────────
+const Th = ({
+  children,
+  className = '',
+  rowSpan,
+  colSpan,
+}: {
+  children?: React.ReactNode;
+  className?: string;
+  rowSpan?: number;
+  colSpan?: number;
+}) => (
+  <th
+    rowSpan={rowSpan}
+    colSpan={colSpan}
+    className={`border border-gray-400 px-2 py-1 text-center text-xs font-semibold bg-gray-200 ${className}`}
+  >
+    {children}
+  </th>
+);
 
-            // Fetch family planning data
-            $familyPlanningData = $this->getFamilyPlanningData($year, $month, $region, $province, $municipality);
+const Td = ({
+  children,
+  className = '',
+  colSpan,
+  rowSpan,
+}: {
+  children?: React.ReactNode;
+  className?: string;
+  colSpan?: number;
+  rowSpan?: number;
+}) => (
+  <td
+    colSpan={colSpan}
+    rowSpan={rowSpan}
+    className={`border border-gray-400 px-2 py-1 text-xs ${className}`}
+  >
+    {children}
+  </td>
+);
 
-            // Fetch oral health data
-            $oralHealthData = $this->getOralHealthData($year, $month, $region, $province, $municipality);
+const InputCell = ({ className = '', value = '' }: { className?: string; value?: string }) => (
+  <td className={`border border-gray-400 px-1 py-0.5 ${className}`}>
+    <input
+      type="number"
+      className="w-full text-center text-xs border-0 outline-none bg-transparent"
+      defaultValue={value}
+      readOnly
+    />
+  </td>
+);
 
-            // Fetch NCD data
-            $ncdData = $this->getNCDData($year, $month, $region, $province, $municipality);
+const SectionHeader = ({
+  children,
+  colSpan,
+}: {
+  children: React.ReactNode;
+  colSpan: number;
+}) => (
+  <tr className="bg-blue-700">
+    <td
+      colSpan={colSpan}
+      className="border border-gray-400 px-2 py-1 text-sm font-bold text-white text-center"
+    >
+      {children}
+    </td>
+  </tr>
+);
 
-            // Fetch infectious disease data
-            $infectiousDiseaseData = $this->getInfectiousDiseaseData($year, $month, $region, $province, $municipality);
+const SubSectionHeader = ({
+  children,
+  colSpan,
+}: {
+  children: React.ReactNode;
+  colSpan: number;
+}) => (
+  <tr className="bg-blue-100">
+    <td
+      colSpan={colSpan}
+      className="border border-gray-400 px-2 py-1 text-xs font-bold text-blue-900"
+    >
+      {children}
+    </td>
+  </tr>
+);
 
-            // Fetch environmental health data
-            $environmentalHealthData = $this->getEnvironmentalHealthData($year, $month, $region, $province, $municipality);
+// Sex column helpers
+const SexHeaders = () => (
+  <>
+    <Th>Male</Th>
+    <Th>Female</Th>
+    <Th>Total</Th>
+  </>
+);
+const SexInputs = ({ maleVal = '', femaleVal = '', totalVal = '' }) => (
+  <>
+    <InputCell value={maleVal} />
+    <InputCell value={femaleVal} />
+    <InputCell value={totalVal} />
+  </>
+);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Filtered M1 report retrieved successfully',
-                'data' => [
-                    'summary' => [
-                        'year' => $year || date('Y'),
-                        'month' => $month ? $this->getMonthName($month) : 'All Months',
-                        'region' => $region || 'All Regions',
-                        'province' => $province || 'All Provinces',
-                        'municipality' => $municipality || 'All Municipalities',
-                        'rhuName' => $rhuName || 'All RHUs',
-                        'projectedPopulation' => $this->calculateProjectedPopulation($locationData),
-                    ],
-                    'A. Child Care' => $childCareData,
-                    'B. NCDs' => $ncdData,
-                    'C. Family Planning' => $familyPlanningData,
-                    'D. Oral Health' => $oralHealthData,
-                    'E. Maternal Care' => $maternalCareData,
-                    'F. Environmental Health' => $environmentalHealthData,
-                    'G. Infectious Diseases' => $infectiousDiseaseData,
-                    'Facility & Workforce' => [
-                        'locationBreakdown' => $locationData,
-                    ],
-                ],
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving filtered report: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
+// ─── FILTER PANEL COMPONENT ───────────────────────────────────────────────────
+interface FilterPanelProps {
+  filters: FilterState;
+  onFilterChange: (filters: FilterState) => void;
+  onApplyFilter: () => void;
+  onClearFilter: () => void;
+  isLoading?: boolean;
+  regions?: Region[];
+  provinces?: Province[];
+  municipalities?: Municipality[];
+  barangays?: Barangay[];
+  isLocationLocked?: boolean;
+}
 
-    /**
-     * Get child care and immunization data
-     */
-    private function getChildCareData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $query = DB::table('child_immunization_records as cir')
-            ->join('household_profiles as hp', 'cir.profileId', '=', 'hp.id')
-            ->select(
-                DB::raw('COUNT(CASE WHEN cir.sex = "M" THEN 1 END) as male_count'),
-                DB::raw('COUNT(CASE WHEN cir.sex = "F" THEN 1 END) as female_count'),
-                DB::raw('COUNT(*) as total_count')
+const FilterPanel: React.FC<FilterPanelProps> = ({
+  filters,
+  onFilterChange,
+  onApplyFilter,
+  onClearFilter,
+  isLoading = false,
+  regions = [],
+  provinces = [],
+  municipalities = [],
+  barangays = [],
+  isLocationLocked = false,
+}) => {
+  const handleInputChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
+    onFilterChange({
+      ...filters,
+      [key]: value,
+    });
+  };
+
+  const handleRegionChange = (value: string) => {
+    onFilterChange({
+      ...filters,
+      region: value,
+      province: '',
+      municipality: '',
+      barangays: [],
+    });
+  };
+
+  const handleProvinceChange = (value: string) => {
+    onFilterChange({
+      ...filters,
+      province: value,
+      municipality: '',
+      barangays: [],
+    });
+  };
+
+  const handleMunicipalityChange = (value: string) => {
+    onFilterChange({
+      ...filters,
+      municipality: value,
+      barangays: [],
+    });
+  };
+
+  const toggleBarangay = (code: string, checked: boolean) => {
+    onFilterChange({
+      ...filters,
+      barangays: checked ? [...filters.barangays, code] : filters.barangays.filter((c) => c !== code),
+    });
+  };
+
+  const filteredProvinces = useMemo(
+    () => provinces.filter((p) => p.regCode === filters.region),
+    [filters.region, provinces],
+  );
+  const filteredMunicipalities = useMemo(
+    () => municipalities.filter((m) => m.provCode === filters.province),
+    [filters.province, municipalities],
+  );
+  const filteredBarangays = useMemo(
+    () => barangays.filter((b) => b.citymunCode === filters.municipality),
+    [filters.municipality, barangays],
+  );
+
+  return (
+    <div className="mb-4 p-4 bg-gray-50 border border-gray-300 rounded-lg">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* Year */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Year</label>
+          <input
+            type="number"
+            value={filters.year || ''}
+            onChange={(e) => handleInputChange('year', e.target.value)}
+            placeholder="YYYY"
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
+          />
+        </div>
+
+        {/* Month */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Month</label>
+          <select
+            value={filters.month || ''}
+            onChange={(e) => handleInputChange('month', e.target.value)}
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
+          >
+            <option value="">All</option>
+            <option value="01">January</option>
+            <option value="02">February</option>
+            <option value="03">March</option>
+            <option value="04">April</option>
+            <option value="05">May</option>
+            <option value="06">June</option>
+            <option value="07">July</option>
+            <option value="08">August</option>
+            <option value="09">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+
+        {/* Region */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Region</label>
+          <select
+            value={filters.region || ''}
+            disabled={isLocationLocked}
+            onChange={(e) => handleRegionChange(e.target.value)}
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-100' : ''}`}
+          >
+            <option value="">Select Region</option>
+            {regions.map((r) => (
+              <option key={r.regCode} value={r.regCode}>{r.regDesc}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Province */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Province</label>
+          <select
+            value={filters.province || ''}
+            disabled={isLocationLocked || !filters.region}
+            onChange={(e) => handleProvinceChange(e.target.value)}
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filters.region ? 'opacity-60 cursor-not-allowed' : ''}`}
+          >
+            <option value="">Select Province</option>
+            {filteredProvinces.map((p) => (
+              <option key={p.provCode} value={p.provCode}>{p.provDesc}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Municipality */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Municipality</label>
+          <select
+            value={filters.municipality || ''}
+            disabled={isLocationLocked || !filters.province}
+            onChange={(e) => handleMunicipalityChange(e.target.value)}
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filters.province ? 'opacity-60 cursor-not-allowed' : ''}`}
+          >
+            <option value="">Select Municipality</option>
+            {filteredMunicipalities.map((m) => (
+              <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Barangay (multi-select) */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-semibold text-gray-700">
+              Barangay
+              <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                {filters.barangays.length} selected
+              </span>
+            </label>
+            {/* All / Clear only shown to users who can change location */}
+            {!isLocationLocked && filteredBarangays.length > 0 && (
+              <div className="flex gap-2 text-[10px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => onFilterChange({ ...filters, barangays: filteredBarangays.map((b) => b.brgyCode) })}
+                  className="text-blue-600 hover:text-blue-800 transition"
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFilterChange({ ...filters, barangays: [] })}
+                  className="text-gray-400 hover:text-gray-700 transition"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filters.municipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+            {filteredBarangays.length === 0 ? (
+              <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+            ) : (
+              filteredBarangays.map((b) => (
+                <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                  <input
+                    type="checkbox"
+                    value={b.brgyCode}
+                    checked={filters.barangays.includes(b.brgyCode)}
+                    disabled={isLocationLocked}
+                    onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
+                    className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                  />
+                  <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* RHU Name */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">RHU Name</label>
+          <input
+            type="text"
+            value={filters.rhuName || ''}
+            onChange={(e) => handleInputChange('rhuName', e.target.value)}
+            placeholder="RHU Name"
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex gap-2 justify-end">
+        <button
+          onClick={onClearFilter}
+          className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 transition"
+        >
+          Clear
+        </button>
+        <button
+          onClick={onApplyFilter}
+          disabled={isLoading}
+          className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition disabled:bg-blue-400"
+        >
+          {isLoading ? 'Filtering...' : 'Apply Filter'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── HEADER INFO ─────────────────────────────────────────────────────────────
+const FormHeader = ({ data }: { data?: ReportData }) => (
+  <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
+    <div className="space-y-1">
+      <div>
+        FHSIS REPORT for the:{' '}
+        <span className="border-b border-gray-500 inline-block w-28">
+          {data?.summary?.month || '&nbsp;'}
+        </span>{' '}
+        Year:{' '}
+        <span className="border-b border-gray-500 inline-block w-20">
+          {data?.summary?.year || '&nbsp;'}
+        </span>
+      </div>
+      <div>
+        Name of RHU:{' '}
+        <span className="border-b border-gray-500 inline-block w-64">
+          {data?.summary?.rhuName || '&nbsp;'}
+        </span>
+      </div>
+    </div>
+    <div className="space-y-1">
+      <div>
+        Name of Province:{' '}
+        <span className="border-b border-gray-500 inline-block w-52">
+          {data?.summary?.province || '&nbsp;'}
+        </span>
+      </div>
+      <div>
+        Projected Population of the Year:{' '}
+        <span className="border-b border-gray-500 inline-block w-32">
+          {data?.summary?.projectedPopulation || '&nbsp;'}
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
+// ─── SECTION A: Child Care and Services ──────────────────────────────────────
+const sbiLeft = [
+  '1. Grade 1 learners given Td',
+  '2. Grade 1 learners given MR',
+  '3. Grade 7 learners given Td',
+  '4. Grade 7 learners given MR',
+  '5. HPV 1 (SBI)',
+];
+const sbiRight = [
+  '6. HPV 1 (CBI)',
+  '7. HPV 2 (CBI)',
+  '8. Number of Grade 1 enrolled learners',
+  '9. Number of Grade 4 enrolled learners',
+  '10. Number of Grade 7 enrolled learners',
+];
+
+const nutritionLeft = [
+  '6. Children 0–59 months old SEEN during the reporting period at health facilities',
+  '6a. Identified MAM',
+  '6b. Identified SAM',
+  '7. MAM enrolled to SFP',
+  '7a. Cured',
+  '7b. Non-cured',
+  '7c. Defaulted',
+];
+const nutritionRight = [
+  '7d. Died',
+  '8. SAM without complication admitted to OTC',
+  '8a. Cured',
+  '8b. Non-cured',
+  '8c. Defaulted',
+  '8d. Died',
+  '',
+];
+
+const SectionA = ({ data }: { data?: ReportData }) => {
+  const maxSBI = Math.max(sbiLeft.length, sbiRight.length);
+  const maxNutrition = Math.max(nutritionLeft.length, nutritionRight.length);
+
+  const sbi = data?.['A. Child Care']?.schoolBasedImmunization;
+  const nutrition = data?.['A. Child Care']?.nutrition;
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>SECTION A. CHILD CARE AND SERVICES</SectionHeader>
+
+          {/* ── A. School and Community-Based Immunization ── */}
+          <SubSectionHeader colSpan={10}>A. School and Community-Based Immunization</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxSBI }).map((_, i) => {
+            const l = sbiLeft[i] ?? '';
+            const r = sbiRight[i] ?? '';
+            // Row 0 (Grade 1 / Td) carries the aggregate SBI totals from the API
+            const lMale   = i === 0 ? String(sbi?.male   ?? '') : '';
+            const lFemale = i === 0 ? String(sbi?.female ?? '') : '';
+            const lTotal  = i === 0 ? String(sbi?.total  ?? '') : '';
+            return (
+              <tr key={i}>
+                <Td className="pl-4 w-5/12">{l}</Td>
+                {l ? (
+                  <><SexInputs maleVal={lMale} femaleVal={lFemale} totalVal={lTotal} /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+                <Td className="pl-4 w-5/12">{r}</Td>
+                {r ? (
+                  <><SexInputs /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+              </tr>
             );
+          })}
 
-        $this->applyLocationFilters($query, 'hp', $region, $province, $municipality);
-
-        if ($year) {
-            $query->whereYear('cir.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('cir.created_at', $month);
-        }
-
-        $result = $query->first();
-
-        return [
-            'schoolBasedImmunization' => [
-                'male' => $result?->male_count ?? 0,
-                'female' => $result?->female_count ?? 0,
-                'total' => $result?->total_count ?? 0,
-            ],
-            'nutrition' => [
-                'male' => $result?->male_count ?? 0,
-                'female' => $result?->female_count ?? 0,
-                'total' => $result?->total_count ?? 0,
-            ],
-        ];
-    }
-
-    /**
-     * Get maternal care data
-     */
-    private function getMaternalCareData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $query = DB::table('maternal_care_records as mcr')
-            ->join('household_profiles as hp', 'mcr.profileId', '=', 'hp.id')
-            ->select(
-                DB::raw('COUNT(*) as registered'),
-                DB::raw('COUNT(CASE WHEN mcr.ageGroup = "10-14" THEN 1 END) as adolescent'),
-                DB::raw('COUNT(CASE WHEN mcr.bmiStatus LIKE "%overweight%" THEN 1 END) as overweight')
+          {/* ── B. Nutrition ── */}
+          <SubSectionHeader colSpan={10}>B. Nutrition</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxNutrition }).map((_, i) => {
+            const l = nutritionLeft[i] ?? '';
+            const r = nutritionRight[i] ?? '';
+            const lIndent = l.startsWith('6a') || l.startsWith('6b') || l.startsWith('7a') || l.startsWith('7b') || l.startsWith('7c') ? 'pl-8' : 'pl-4';
+            const rIndent = r.startsWith('7d') || r.startsWith('8a') || r.startsWith('8b') || r.startsWith('8c') || r.startsWith('8d') ? 'pl-8' : 'pl-4';
+            // Row 0 ("Children 0-59 months SEEN") carries the aggregate nutrition totals from the API
+            const lMale   = i === 0 ? String(nutrition?.male   ?? '') : '';
+            const lFemale = i === 0 ? String(nutrition?.female ?? '') : '';
+            const lTotal  = i === 0 ? String(nutrition?.total  ?? '') : '';
+            return (
+              <tr key={i}>
+                <Td className={`${lIndent} w-5/12`}>{l}</Td>
+                {l ? (
+                  <><SexInputs maleVal={lMale} femaleVal={lFemale} totalVal={lTotal} /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+                <Td className={`${rIndent} w-5/12`}>{r}</Td>
+                {r ? (
+                  <><SexInputs /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+              </tr>
             );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
-        $this->applyLocationFilters($query, 'hp', $region, $province, $municipality);
+// ─── SECTION B: Non-Communicable Diseases ────────────────────────────────────
+const SectionB = ({ data }: { data?: ReportData }) => {
+  const ncd = data?.['B. NCDs'];
+  const rows: [string, string][] = [
+    ['1. Hypertension cases identified', String(ncd?.hypertension ?? '')],
+    ['2. Diabetes cases identified',     String(ncd?.diabetes     ?? '')],
+    ['3. Current smokers identified',    String(ncd?.smokers      ?? '')],
+    ['4. Other NCD cases identified',    ''],
+  ];
 
-        if ($year) {
-            $query->whereYear('mcr.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('mcr.created_at', $month);
-        }
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={5}>SECTION B. NON-COMMUNICABLE DISEASES</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {rows.map(([label, total], i) => (
+            <tr key={i}>
+              <Td className="pl-4">{label}</Td>
+              <SexInputs totalVal={total} />
+              <InputCell />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
-        $result = $query->first();
+// ─── SECTION G: Infectious Diseases ──────────────────────────────────────────
+const filarLeft = [
+  '1. No. of individual examined for lymphatic filariasis',
+  '1a. Nocturnal Blood Examination (NBE)',
+  '1b. Rapid Diagnostic Test (RDT)',
+  '1c. Total no. of individuals examined for lymphedema through NBE and RDT',
+  '2. No. of individual found positive for lymphatic filariasis',
+  '2a. Nocturnal Blood Examination (NBE)',
+  '2b. Rapid Diagnostic Test (RDT)',
+  '2c. Total no. of individuals found positive for lymphedema through NBE and RDT',
+  '3. Lymphedema',
+  '3a. 2-4 years old',
+  '3b. 5-14 years old',
+  '3c. 15 years old and above',
+  '3d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with lymphedema',
+  '4. Elephentiasis',
+  '4a. 2-4 years old',
+  '4b. 5-14 years old',
+  '4c. 15 years old and above',
+  '4d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with Elephentiasis',
+];
 
-        return [
-            'registered' => $result?->registered ?? 0,
-            'adolescentPregnant' => $result?->adolescent ?? 0,
-            'overweight' => $result?->overweight ?? 0,
-        ];
-    }
+const filarRight = [
+  '3. Hydrocele',
+  '3a. 2-4 years old',
+  '3b. 5-14 years old',
+  '3c. 15 years old and above',
+  '3d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with Hydrocele',
+  '4. Number of individuals who received Mass Drug Administration',
+  '4a. 2-4 years old',
+  '4b. 5-14 years old',
+  '4c. 15 years old and above',
+  '4d. Total no. of individuals aged 2 yrs old and above who received MDA',
+  '', '', '', '', '', '', '', '',
+];
 
-    /**
-     * Get family planning data
-     * 
-     * FIXED: Line 218 was referencing fpr.sex which doesn't exist.
-     * Sex column is in household_profiles (hp), not family_planning_records.
-     */
-    private function getFamilyPlanningData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $query = DB::table('family_planning_records as fpr')
-            ->join('household_profiles as hp', 'fpr.profileId', '=', 'hp.id')
-            ->select(
-                DB::raw('COUNT(*) as total_acceptors'),
-                DB::raw('COUNT(CASE WHEN hp.sex = "F" THEN 1 END) as female_acceptors'),
-                DB::raw('COUNT(CASE WHEN fpr.ageGroupCategory = "20-49" THEN 1 END) as reproductive_age')
+const leprosyLeft = [
+  '1. No. of registered Leprosy cases',
+  '1a. 0-14 years old',
+  '1b. 15-18 years old',
+  '1c. 19 years old and above',
+  '2. No. of newly detected case',
+  '2a. 0-14 years old',
+  '2b. 15-18 years old',
+  '2c. 19 years old and above',
+  '3. Confirmed Leprosy Cases',
+  '3a. 0-14 years old',
+  '3b. 15-18 years old',
+  '3c. 19 years old and above',
+];
+
+const leprosyRight = [
+  '4. Completed fixed duration Multi-Drug Therapy (MDT)',
+  '4a. 0-14 years old',
+  '4b. 15-18 years old',
+  '4c. 19 years old and above',
+  '5. No. of confirmed leprosy cases treated',
+  '5a. 0-14 years old',
+  '5b. 15-18 years old',
+  '5c. 19 years old and above',
+  '6. Newly Detected Cases with Grade 2 Disabilities',
+  '6a. 0-14 years old',
+  '6b. 15-18 years old',
+  '6c. 19 years old and above',
+];
+
+const SectionG = ({ data }: { data?: ReportData }) => {
+  const maxFilar = Math.max(filarLeft.length, filarRight.length);
+  const maxLeprosy = Math.max(leprosyLeft.length, leprosyRight.length);
+
+  const infectious = data?.['G. Infectious Diseases'];
+  const filarExamined  = String(infectious?.filariasis?.examined  ?? '');
+  const leprosyRegistered = String(infectious?.leprosy?.registered ?? '');
+
+  const isSubItem = (s: string) =>
+    /^\d+[a-d]\./.test(s) || /^[1-4][a-d]\./.test(s);
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>
+            SECTION G. INFECTIOUS DISEASE PREVENTION AND CONTROL SERVICES
+          </SectionHeader>
+
+          {/* ── A. Filariasis ── */}
+          <SubSectionHeader colSpan={10}>A. Filariasis</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxFilar }).map((_, i) => {
+            const l = filarLeft[i] ?? '';
+            const r = filarRight[i] ?? '';
+            // Row 0 ("No. of individual examined") carries the filariasis total from the API
+            const lTotal = i === 0 ? filarExamined : '';
+            return (
+              <tr key={i}>
+                <Td className={`${isSubItem(l) ? 'pl-8' : 'pl-4'} w-5/12`}>{l}</Td>
+                {l ? (
+                  <><SexInputs totalVal={lTotal} /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+                <Td className={`${isSubItem(r) ? 'pl-8' : 'pl-4'} w-5/12`}>{r}</Td>
+                {r ? (
+                  <><SexInputs /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+              </tr>
             );
+          })}
 
-        $this->applyLocationFilters($query, 'hp', $region, $province, $municipality);
-
-        if ($year) {
-            $query->whereYear('fpr.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('fpr.created_at', $month);
-        }
-
-        $result = $query->first();
-
-        return [
-            'totalAcceptors' => $result?->total_acceptors ?? 0,
-            'femaleAcceptors' => $result?->female_acceptors ?? 0,
-            'reproductiveAge' => $result?->reproductive_age ?? 0,
-        ];
-    }
-
-    /**
-     * Get oral health data
-     */
-    private function getOralHealthData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $query = DB::table('oral_health_care as ohc')
-            ->join('household_profiles as hp', 'ohc.profile_id', '=', 'hp.id')
-            ->select(
-                DB::raw('COUNT(*) as screened'),
-                DB::raw('COUNT(CASE WHEN ohc.rpoc0_oral_screening = 1 THEN 1 END) as early_childhood'),
-                DB::raw('COUNT(CASE WHEN ohc.complete_rpoc1st = 1 THEN 1 END) as school_age')
+          {/* ── E. Leprosy ── */}
+          <SubSectionHeader colSpan={10}>E. Leprosy</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxLeprosy }).map((_, i) => {
+            const l = leprosyLeft[i] ?? '';
+            const r = leprosyRight[i] ?? '';
+            // Row 0 ("No. of registered Leprosy cases") carries the leprosy total from the API
+            const lTotal = i === 0 ? leprosyRegistered : '';
+            return (
+              <tr key={i}>
+                <Td className={`${isSubItem(l) ? 'pl-8' : 'pl-4'} w-5/12`}>{l}</Td>
+                {l ? (
+                  <><SexInputs totalVal={lTotal} /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+                <Td className={`${isSubItem(r) ? 'pl-8' : 'pl-4'} w-5/12`}>{r}</Td>
+                {r ? (
+                  <><SexInputs /><InputCell /></>
+                ) : (
+                  <td colSpan={4} className="border border-gray-400" />
+                )}
+              </tr>
             );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
-        $this->applyLocationFilters($query, 'hp', $region, $province, $municipality);
+// ─── SECTION: Health Facility & Workforce Data ───────────────────────────────
+const SectionFacility = ({ data }: { data?: ReportData }) => {
+  const locationBreakdown = data?.['Facility & Workforce']?.locationBreakdown ?? [];
 
-        if ($year) {
-            $query->whereYear('ohc.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('ohc.created_at', $month);
-        }
+  // Derive counts from locationBreakdown
+  const totalBarangays  = locationBreakdown.length;
+  const totalHouseholds = locationBreakdown.reduce(
+    (sum: number, row: any) => sum + (row.total_households ?? 0), 0
+  );
 
-        $result = $query->first();
+  const facilityRows: [string, boolean, string][] = [
+    ['1. No. of Barangays - Total',         false, String(totalBarangays  || '')],
+    ['2. No. of Households - (Projected)',   false, String(totalHouseholds || '')],
+    ['3. No. of Health Centers - Total',     false, ''],
+    ['a. Main Health Centers - Total',       true,  ''],
+    ['b. City Health Centers - Total',       true,  ''],
+    ['c. Rural Health Units - Total',        true,  ''],
+    ['d. Super Health Centers - Total',      true,  ''],
+    ['4. No. of Barangay Health Stations - Total', false, ''],
+    ['5. No. of Health Workers - Total',     false, ''],
+    ['a. Physicians/Doctors - Total',        true,  ''],
+    ['b. Dentists - Total',                  true,  ''],
+    ['c. Nurses - Total',                    true,  ''],
+    ['d. Midwives - Total',                  true,  ''],
+    ['e. Medical Technologists - Total',     true,  ''],
+    ['f. Nutritionists/Dietitians - Total',  true,  ''],
+    ['g. Sanitary Engineers - Total',        true,  ''],
+    ['h. Sanitary Inspectors - Total',       true,  ''],
+    ['i. Active BHWs - Total',               true,  ''],
+  ];
 
-        return [
-            'screened' => $result?->screened ?? 0,
-            'earlyChildhood' => $result?->early_childhood ?? 0,
-            'schoolAge' => $result?->school_age ?? 0,
-        ];
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={5}>HEALTH FACILITY AND WORKFORCE DATA</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left">Indicators</Th>
+            <SexHeaders />
+            <Th>Remarks</Th>
+          </tr>
+          {facilityRows.map(([label, sub, total], i) => (
+            <tr key={i}>
+              <Td className={sub ? 'pl-8' : 'pl-4'}>{label}</Td>
+              <SexInputs totalVal={total} />
+              <InputCell />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+export default function A1AllPrograms({
+  regions = [],
+  provinces = [],
+  municipalities = [],
+  barangays = [],
+  onApplyFilter,
+}: A1AllProgramsProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Only Administrators and DOH users may change location filters;
+  // all other roles see their assigned location as read-only.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+
+  // Location defaults come from the logged-in user's assigned location.
+  const defaultLocation = {
+    region: user?.region_code ?? '',
+    province: user?.province_code ?? '',
+    municipality: user?.municipality_code ?? '',
+    barangays: parseArray(user?.barangay_codes),
+  };
+
+  const [activeSection, setActiveSection] = useState<string>('all');
+  const [filters, setFilters] = useState<FilterState>({ ...defaultLocation });
+  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sections = [
+    { id: 'all', label: 'All' },
+    { id: 'a', label: 'A. Child Care' },
+    { id: 'b', label: 'B. NCDs' },
+    { id: 'g', label: 'G. Infectious Diseases' },
+    { id: 'facility', label: 'Facility & Workforce' },
+  ];
+
+  const show = (id: string) => activeSection === 'all' || activeSection === id;
+
+  const handleFilterChange = (newFilters: FilterState) => {
+    setFilters(newFilters);
+  };
+
+  // Locked users always fall back to their assigned location rather than a blank one.
+  const handleClearFilter = () => {
+    setFilters({ ...defaultLocation });
+  };
+
+  const handleApplyFilter = async () => {
+    onApplyFilter?.(filters.month ?? '', filters.year ?? '');
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Build query string from filters
+      const queryParams = new URLSearchParams();
+      if (filters.year) queryParams.append('year', filters.year);
+      if (filters.month) queryParams.append('month', filters.month);
+      if (filters.region) queryParams.append('region', filters.region);
+      if (filters.province) queryParams.append('province', filters.province);
+      if (filters.municipality) queryParams.append('municipality', filters.municipality);
+      // Send every selected barangay code as barangay[]
+      filters.barangays.forEach((code) => queryParams.append('barangay[]', code));
+      if (filters.rhuName) queryParams.append('rhu_name', filters.rhuName);
+
+      const response = await fetch(`/qfhsis/public/api/reports/filtered-m1-all?${queryParams.toString()}`);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setReportData(data.data || data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch filtered report');
+      console.error('Filter error:', err);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    /**
-     * Get non-communicable disease data
-     */
-    private function getNCDData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $query = DB::table('philpen_risk_assessments as pra')
-            ->join('household_profiles as hp', 'pra.profile_id', '=', 'hp.id')
-            ->select(
-                DB::raw('COUNT(CASE WHEN pra.hypertension_result = 1 THEN 1 END) as hypertension'),
-                DB::raw('COUNT(CASE WHEN pra.diabetes_result = 1 THEN 1 END) as diabetes'),
-                DB::raw('COUNT(CASE WHEN pra.current_smoker = 1 THEN 1 END) as smokers')
-            );
+  return (
+    <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-4">
+      {/* Header */}
+      <div className="mb-4 flex flex-wrap justify-between items-center gap-2">
+        <div>
+          <h2 className="text-xl font-bold text-gray-800">A1: All Programs</h2>
+          <p className="text-xs text-gray-500">FHSIS Annual Report Form</p>
+        </div>
+        <button
+          onClick={() => window.print()}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
+        >
+          Export / Print
+        </button>
+      </div>
 
-        $this->applyLocationFilters($query, 'hp', $region, $province, $municipality);
+      {/* Filter Panel */}
+      <FilterPanel
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        onApplyFilter={handleApplyFilter}
+        onClearFilter={handleClearFilter}
+        isLoading={isLoading}
+        regions={regions}
+        provinces={provinces}
+        municipalities={municipalities}
+        barangays={barangays}
+        isLocationLocked={isLocationLocked}
+      />
 
-        if ($year) {
-            $query->whereYear('pra.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('pra.created_at', $month);
-        }
+      {/* Error message */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+          {error}
+        </div>
+      )}
 
-        $result = $query->first();
+      {/* Section nav */}
+      <div className="mb-4 flex flex-wrap gap-1">
+        {sections.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setActiveSection(s.id)}
+            className={`px-3 py-1 rounded text-xs font-medium border transition ${
+              activeSection === s.id
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
-        return [
-            'hypertension' => $result?->hypertension ?? 0,
-            'diabetes' => $result?->diabetes ?? 0,
-            'smokers' => $result?->smokers ?? 0,
-        ];
-    }
+      {/* Form fields */}
+      <FormHeader data={reportData} />
 
-    /**
-     * Get infectious disease data
-     */
-    private function getInfectiousDiseaseData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        $filariasisData = DB::table('filariasis_registry_table as frt')
-            ->join('household_profiles as hp', 'frt.profileId', '=', 'hp.id')
-            ->select(DB::raw('COUNT(*) as count'))
-            ->tap(fn($q) => $this->applyLocationFilters($q, 'hp', $region, $province, $municipality));
-
-        if ($year) {
-            $filariasisData->whereYear('frt.created_at', $year);
-        }
-        if ($month) {
-            $filariasisData->whereMonth('frt.created_at', $month);
-        }
-
-        $leprosyData = DB::table('leprosy_registry as lr')
-            ->join('household_profiles as hp', 'lr.profileId', '=', 'hp.id')
-            ->select(DB::raw('COUNT(*) as count'))
-            ->tap(fn($q) => $this->applyLocationFilters($q, 'hp', $region, $province, $municipality));
-
-        if ($year) {
-            $leprosyData->whereYear('lr.created_at', $year);
-        }
-        if ($month) {
-            $leprosyData->whereMonth('lr.created_at', $month);
-        }
-
-        return [
-            'filariasis' => [
-                'examined' => $filariasisData->first()?->count ?? 0,
-            ],
-            'leprosy' => [
-                'registered' => $leprosyData->first()?->count ?? 0,
-            ],
-        ];
-    }
-
-    /**
-     * Get environmental health data
-     * 
-     * FIXED: Line 367 was joining on ehr.id = hp.id which is incorrect.
-     * environmental_health_records doesn't have a profile_id foreign key.
-     * This needs a migration to add profile_id to environmental_health_records.
-     * For now, using a temporary workaround by filtering on created_at timing.
-     */
-    private function getEnvironmentalHealthData(
-        ?string $year,
-        ?string $month,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): array {
-        // NOTE: This query has a schema issue. The environmental_health_records table
-        // doesn't have a profile_id foreign key to household_profiles. 
-        // A migration should add: $table->foreignId('profile_id')->constrained('household_profiles')->onDelete('cascade');
-        
-        // For now, returning safe defaults. This should be fixed with proper schema.
-        $query = DB::table('environmental_health_records as ehr')
-            ->select(
-                DB::raw('COUNT(CASE WHEN ehr.waterLevelI = 1 THEN 1 END) as safe_water'),
-                DB::raw('COUNT(CASE WHEN ehr.sanitationStatus = "Functional Sanitary" THEN 1 END) as sanitary_toilet'),
-                DB::raw('COUNT(*) as total_assessed')
-            );
-
-        if ($year) {
-            $query->whereYear('ehr.created_at', $year);
-        }
-        if ($month) {
-            $query->whereMonth('ehr.created_at', $month);
-        }
-
-        $result = $query->first();
-
-        return [
-            'safeWaterAccess' => $result?->safe_water ?? 0,
-            'sanitaryToilet' => $result?->sanitary_toilet ?? 0,
-            'totalAssessed' => $result?->total_assessed ?? 0,
-        ];
-    }
-
-    /**
-     * Apply location-based filters to query
-     */
-    private function applyLocationFilters(
-        $query,
-        string $tableAlias,
-        ?string $region,
-        ?string $province,
-        ?string $municipality
-    ): void {
-        if ($region) {
-            $query->where("{$tableAlias}.region", 'like', "%{$region}%");
-        }
-        if ($province) {
-            $query->where("{$tableAlias}.province", 'like', "%{$province}%");
-        }
-        if ($municipality) {
-            $query->where("{$tableAlias}.municipality", 'like', "%{$municipality}%");
-        }
-    }
-
-    /**
-     * Get month name from month number
-     */
-    private function getMonthName(string $month): string
-    {
-        $monthNames = [
-            '01' => 'January',
-            '02' => 'February',
-            '03' => 'March',
-            '04' => 'April',
-            '05' => 'May',
-            '06' => 'June',
-            '07' => 'July',
-            '08' => 'August',
-            '09' => 'September',
-            '10' => 'October',
-            '11' => 'November',
-            '12' => 'December',
-        ];
-
-        return $monthNames[$month] ?? 'Unknown Month';
-    }
-
-    /**
-     * Calculate projected population from location data
-     */
-    private function calculateProjectedPopulation($locationData): int
-    {
-        return $locationData->sum('total_households') * 5; // Rough estimate: 5 persons per household
-    }
+      {/* Sections */}
+      <div className="overflow-x-auto space-y-2">
+        {show('a') && <SectionA data={reportData} />}
+        {show('b') && <SectionB data={reportData} />}
+        {show('g') && <SectionG data={reportData} />}
+        {show('facility') && <SectionFacility data={reportData} />}
+      </div>
+    </div>
+  );
 }

@@ -15,6 +15,7 @@ use App\Models\ChildSickRecord;
 use App\Models\OralHealthCare;
 use App\Models\PhilpenRiskAssessment;
 use App\Models\EyesScreening;
+use App\Models\GeriatricScreeningRecord;
 use App\Models\MentalHealthRecord;
 use App\Models\CervicalCancerScreening;
 use App\Models\EnvironmentalHealthRecord;
@@ -627,7 +628,7 @@ class PhoReportController extends Controller
                     if ($doseDate && $doseDate->between($startOfSelected, $endOfSelected)) {
                         $bump($imm0_11, $key, $rec->sex ?? null);
                     }
-                }
+                } 
             } elseif ($isPreviousYearCohort) {
                 foreach ($doseColumnsPrev as $col => $key) {
                     $doseDate = $this->parseDateOrNull($rec->{$col} ?? null);
@@ -972,12 +973,17 @@ class PhoReportController extends Controller
      * Builds the lifestyle / CVD / DM / blindness / mental health / cervical &
      * breast cancer indicator sets consumed by M1AllPrograms.tsx's SectionE.
      *
-     * NOTE: geriatric_screening_records and mental_health_records have no
-     * profileId column, so those two indicator groups cannot be scoped by
-     * region/province/municipality/barangay.
-     * The cervical_cancer_screenings table has no separate VIA / Pap Smear / HPV
-     * DNA columns, so 'via', 'papSmear', 'hpvDna', 'assessedOnly', 'linkedTreated'
-     * and 'linkedReferred' are always returned as 0.
+     * NOTE: mental_health_records has no profileId column, so that indicator
+     * group cannot be scoped by region/province/municipality/barangay.
+     * cervical.* is scoped to women aged 30-65 and breast.* to women aged
+     * 30-69 (50-69 for the asymptomatic-screening item), computed from
+     * date_of_birth as of each record's date_assessment.
+     * breast.* relies on parsing breast_risk_assessment / breast_exam_type as
+     * comma-separated multi-value fields — flagged as an assumption in the
+     * code, please verify against the real column encoding.
+     * geriatricScreening.positive is mapped from results = "0" per the spec as
+     * given — double-check this against the real encoding, since it reads
+     * backwards from what "positive result" normally implies.
      */
     public function nonCommunicableDisease(Request $request)
     {
@@ -1011,8 +1017,13 @@ class PhoReportController extends Controller
         foreach ($philpenRecords as $rec) {
             $sex = $rec->sex ?? null;
             $age = is_numeric($rec->age ?? null) ? (int) $rec->age : null;
-            $is2059  = ($age !== null && $age >= 20 && $age <= 59) || $this->contains($rec->age_group ?? null, '20-59');
-            $is60plus = ($age !== null && $age >= 60) || $this->contains($rec->age_group ?? null, '60');
+            $ageGroupRaw = trim((string) ($rec->age_group ?? ''));
+            $is2059  = ($age !== null && $age >= 20 && $age <= 59)
+                || str_starts_with($ageGroupRaw, 'A')
+                || ($this->contains($ageGroupRaw, '20') && $this->contains($ageGroupRaw, '59'));
+            $is60plus = ($age !== null && $age >= 60)
+                || str_starts_with($ageGroupRaw, 'B')
+                || $this->contains($ageGroupRaw, '60');
 
             $assessed = $this->parseDateOrNull($rec->date_assessment ?? null);
             $inPeriod = $assessed && $assessed->between($startOfSelected, $endOfSelected);
@@ -1022,16 +1033,21 @@ class PhoReportController extends Controller
                 if ($bucket) {
                     $target = $bucket === 'lifestyle60plus' ? $lifestyle60plus : $lifestyle2059;
 
-                    if ($this->truthy($rec->current_smoker ?? null)) $bump($target, 'currentSmoker', $sex);
+                    // current_smoker is coded: 2 = Tobacco Products, 3 = Vaporized Nicotine
+                    // Products, 4 = Both. "Current Smokers" (1a/2a) is the sum of the three.
+                    $smokerCode = (int) ($rec->current_smoker ?? 0);
+                    if (in_array($smokerCode, [2, 3, 4], true)) $bump($target, 'currentSmoker', $sex);
+                    if ($smokerCode === 2) $bump($target, 'smokerTobacco', $sex);
+                    if ($smokerCode === 3) $bump($target, 'smokerVaporized', $sex);
+                    if ($smokerCode === 4) $bump($target, 'smokerBoth', $sex);
+
                     if ($this->truthy($rec->provided_bti ?? null))   $bump($target, 'providedBti', $sex);
                     if ($this->truthy($rec->binge_alcohol ?? null))  $bump($target, 'bingeAlcohol', $sex);
                     if ($this->truthy($rec->insufficient_pa ?? null)) $bump($target, 'insufficientPa', $sex);
                     if ($this->truthy($rec->unhealthy_diet ?? null)) $bump($target, 'unhealthyDiet', $sex);
-                    // bmi_category is coded (e.g. 3 = overweight, 4 = obese); columns for
-                    // the tobacco-type breakdown (smokerTobacco/Vaporized/Both) don't
-                    // exist in this table so they are left uncounted.
-                    if ((int) ($rec->bmi_category ?? 0) === 3) $bump($target, 'overweight', $sex);
-                    if ((int) ($rec->bmi_category ?? 0) === 4) $bump($target, 'obese', $sex);
+                    // bmi_category is coded: 1 = overweight, 2 = obese.
+                    if ((int) ($rec->bmi_category ?? 0) === 1) $bump($target, 'overweight', $sex);
+                    if ((int) ($rec->bmi_category ?? 0) === 2) $bump($target, 'obese', $sex);
 
                     if ($bucket === 'lifestyle60plus') {
                         $lifestyle60plus = $target;
@@ -1056,40 +1072,116 @@ class PhoReportController extends Controller
         }
 
         // ── E4: Blindness Prevention (eyes_screenings) ────────────────────────
+        // age_group is a single letter: A = 0-9, B = 10-19, C = 20-59, D = 60+.
+        // eye_disease_code is a single letter: A = changes in vision, B = changes
+        // in appearance, C = eye/orbital injury, D = routine eye exams.
+        $eyeAgeSuffix     = ['A' => '0_9', 'B' => '10_19', 'C' => '20_59', 'D' => '60plus'];
+        $eyeCategoryLabel = ['A' => 'Vision', 'B' => 'Appearance', 'C' => 'Injury', 'D' => 'Routine'];
+
         $blindnessKeys = ['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus', 'identified', 'referred'];
+        foreach ($eyeAgeSuffix as $suffix) {
+            $blindnessKeys[] = "identified{$suffix}";
+            $blindnessKeys[] = "referred{$suffix}";
+            foreach ($eyeCategoryLabel as $cat) {
+                $blindnessKeys[] = "identified{$cat}{$suffix}";
+            }
+        }
         $blindness = array_fill_keys($blindnessKeys, $sexEmpty);
 
         $eyeRecords = EyesScreening::query()
             ->when(true, function ($q) use ($location) {
                 $this->applyProfileIdLocationFilter($q, $location, 'profile_id');
             })
-            ->get()
-            ->filter(function ($rec) use ($startOfSelected, $endOfSelected) {
-                $d = $this->parseDateOrNull($rec->date_screening ?? null);
-                return $d && $d->between($startOfSelected, $endOfSelected);
-            });
+            ->get();
 
         foreach ($eyeRecords as $rec) {
             $sex = $rec->sex ?? null;
-            if (!$this->truthy($rec->screened ?? null)) {
-                continue;
+
+            $ag = strtoupper(trim((string) ($rec->age_group ?? '')));
+            $ageLetter = in_array($ag, ['A', 'B', 'C', 'D'], true) ? $ag : null;
+            $suffix = $ageLetter ? $eyeAgeSuffix[$ageLetter] : null;
+
+            $screenedDate = $this->parseDateOrNull($rec->date_screening ?? null);
+            $screenedInPeriod = $screenedDate && $screenedDate->between($startOfSelected, $endOfSelected);
+
+            // 1a-1d. Screened for eye disease/s, by age group
+            if ($screenedInPeriod && $suffix && $this->truthy($rec->screened ?? null)) {
+                $bump($blindness, "screened{$suffix}", $sex);
             }
-            $bracketKey = match (true) {
-                $this->contains($rec->age_group ?? null, '0-9')   => 'screened0_9',
-                $this->contains($rec->age_group ?? null, '10-19') => 'screened10_19',
-                $this->contains($rec->age_group ?? null, '20-59') => 'screened20_59',
-                $this->contains($rec->age_group ?? null, '60')    => 'screened60plus',
-                default => null,
-            };
-            if ($bracketKey) {
-                $bump($blindness, $bracketKey, $sex);
+
+            // 2a-2d / 2a1-2d4. Screened and identified with an eye ailment, by age
+            // group and by category (vision / appearance / injury / routine exam)
+            if ($screenedInPeriod && $suffix) {
+                $code = strtoupper(trim((string) ($rec->eye_disease_code ?? '')));
+                if (isset($eyeCategoryLabel[$code])) {
+                    $bump($blindness, "identified{$eyeCategoryLabel[$code]}{$suffix}", $sex);
+                    $bump($blindness, "identified{$suffix}", $sex);
+                    $bump($blindness, 'identified', $sex);
+                }
             }
-            if (!empty($rec->eye_disease_code)) {
-                $bump($blindness, 'identified', $sex);
-            }
-            if (!empty($rec->date_referred)) {
+
+            // 3a-3d. Identified and referred to an eye health professional, by age
+            // group — scoped to referrals made within the reporting period.
+            $referredDate = $this->parseDateOrNull($rec->date_referred ?? null);
+            if ($referredDate && $referredDate->between($startOfSelected, $endOfSelected) && $suffix) {
+                $bump($blindness, "referred{$suffix}", $sex);
                 $bump($blindness, 'referred', $sex);
             }
+        }
+
+        // ── E5/E6: Senior Immunization & Geriatric Screening (geriatric_screening_records) ──
+        $seniorImmunizationKeys = ['ppvNotPreviouslyReceived', 'ppvGiven', 'seniorsSeen', 'influenzaGiven'];
+        $seniorImmunization = array_fill_keys($seniorImmunizationKeys, $sexEmpty);
+
+        $geriatricKeys = ['screened', 'positive', 'memory', 'depression', 'polypharmacy', 'urinaryIncontinence'];
+        $geriatricScreening = array_fill_keys($geriatricKeys, $sexEmpty);
+
+        $geriatricRecords = GeriatricScreeningRecord::query()
+            ->when(true, function ($q) use ($location) {
+                $this->applyProfileIdLocationFilter($q, $location, 'profile_id');
+            })
+            ->get();
+
+        foreach ($geriatricRecords as $rec) {
+            $sex = $rec->sex ?? null;
+
+            $seenDate = $this->parseDateOrNull($rec->date_of_screening ?? null);
+            $seenInPeriod = $seenDate && $seenDate->between($startOfSelected, $endOfSelected);
+
+            if ($seenInPeriod) {
+                $bump($seniorImmunization, 'seniorsSeen', $sex);
+                // ppv_received_at60 = false means this senior, seen this period,
+                // had not previously received PPV upon reaching 60.
+                if (!$this->truthy($rec->ppv_received_at60 ?? null)) {
+                    $bump($seniorImmunization, 'ppvNotPreviouslyReceived', $sex);
+                }
+            }
+
+            $ppvDate = $this->parseDateOrNull($rec->ppv_date_given ?? null);
+            if ($ppvDate && $ppvDate->between($startOfSelected, $endOfSelected)) {
+                $bump($seniorImmunization, 'ppvGiven', $sex);
+            }
+
+            $influenzaDate = $this->parseDateOrNull($rec->influenza_date_given ?? null);
+            if ($influenzaDate && $influenzaDate->between($startOfSelected, $endOfSelected)) {
+                $bump($seniorImmunization, 'influenzaGiven', $sex);
+            }
+
+            $results = strtoupper((string) ($rec->results ?? ''));
+            if ($results !== '' && preg_match('/[A-I]/', $results)) {
+                $bump($geriatricScreening, 'screened', $sex);
+            }
+            // NOTE: spec literally maps "positive result" to results = "0". This
+            // reads as the inverse of what "positive" normally means for a screening
+            // result field — verify against the app's actual encoding before relying
+            // on this in production.
+            if (trim($rec->results ?? '') === '0') {
+                $bump($geriatricScreening, 'positive', $sex);
+            }
+            if (str_contains($results, 'A')) $bump($geriatricScreening, 'memory', $sex);
+            if (str_contains($results, 'B')) $bump($geriatricScreening, 'depression', $sex);
+            if (str_contains($results, 'C')) $bump($geriatricScreening, 'polypharmacy', $sex);
+            if (str_contains($results, 'D')) $bump($geriatricScreening, 'urinaryIncontinence', $sex);
         }
 
         // ── E7: Mental Health (mental_health_records — no location link) ─────
@@ -1121,10 +1213,32 @@ class PhoReportController extends Controller
         }
 
         // ── E8/E9: Cervical & Breast Cancer (cervical_cancer_screenings) ──────
-        $cervical = ['screened' => 0, 'via' => 0, 'papSmear' => 0, 'hpvDna' => 0, 'assessedOnly' => 0,
-                     'suspicious' => 0, 'linkedToCare' => 0, 'linkedTreated' => 0, 'linkedReferred' => 0];
-        $breast = ['seen' => 0, 'highRiskOrSymptomatic' => 0, 'providedCbe' => 0, 'providedMammogram' => 0,
-                   'remarkableCbe' => 0, 'remarkableMammogram' => 0, 'linkedToCare' => 0, 'asymptomaticScreened' => 0];
+        // cervical_screening_done: 0 = Assessed Only, 1 = VIA, 2 = Pap Smear, 3 = HPV DNA
+        // cervical_result: 1 = suspicious, 2 = precancerous lesion
+        // cervical_linked_to_care: 1 = Treated, 2 = Referred
+        //
+        // ASSUMPTION (flagged — please verify against the real column encoding):
+        // the spec ANDs breast_risk_assessment against both a numeric (1/2) and a
+        // letter ("A"/"B") value on the same field, and separately ANDs
+        // breast_exam_type against both "CBE"/"M" and "A". The only way those are
+        // simultaneously satisfiable is if these are comma-separated multi-value
+        // strings (like geriatric_screening_records.results), so both fields are
+        // parsed as comma lists here rather than single values.
+        $cervicalKeys = [
+            'screened', 'via', 'papSmear', 'hpvDna', 'assessedOnly',
+            'suspicious', 'suspiciousLinkedToCare', 'suspiciousLinkedTreated', 'suspiciousLinkedReferred',
+            'precancerous', 'precancerousLinkedToCare', 'precancerousLinkedTreated', 'precancerousLinkedReferred',
+        ];
+        $cervical = array_fill_keys($cervicalKeys, 0);
+
+        $breastKeys = [
+            'seen', 'highRiskOrSymptomatic',
+            'provided', 'providedCbe', 'providedMammogram',
+            'remarkable', 'remarkableCbe', 'remarkableMammogram',
+            'linkedToCare', 'linkedToCareCbe', 'linkedToCareMammogram',
+            'asymptomaticScreened', 'asymptomaticCbe', 'asymptomaticMammogram',
+        ];
+        $breast = array_fill_keys($breastKeys, 0);
 
         $cancerRecords = CervicalCancerScreening::query()
             ->when(true, function ($q) use ($location) {
@@ -1136,37 +1250,90 @@ class PhoReportController extends Controller
                 return $d && $d->between($startOfSelected, $endOfSelected);
             });
 
+        $tokens = function ($value): array {
+            return array_map(fn($p) => strtoupper(trim($p)), explode(',', (string) $value));
+        };
+        $hasToken = function ($value, string $token) use ($tokens): bool {
+            return in_array(strtoupper($token), $tokens($value), true);
+        };
+        $ageAt = function ($dob, $asOf) {
+            $d = $this->parseDateOrNull($dob);
+            return ($d && $asOf) ? $d->diffInYears($asOf) : null;
+        };
+
         foreach ($cancerRecords as $rec) {
-            if ($this->truthy($rec->cervical_screening_done ?? null)) {
-                $cervical['screened']++;
-                if ($this->truthy($rec->cervical_result ?? null)) {
+            $assessedOn = $this->parseDateOrNull($rec->date_assessment ?? null);
+            $age = $ageAt($rec->date_of_birth ?? null, $assessedOn);
+
+            // ── E8. Cervical Cancer (women aged 30-65) ──
+            if ($age !== null && $age >= 30 && $age <= 65) {
+                $done = (int) ($rec->cervical_screening_done ?? -1);
+                if (in_array($done, [0, 1, 2, 3], true)) $cervical['screened']++;
+                if ($done === 1) $cervical['via']++;
+                if ($done === 2) $cervical['papSmear']++;
+                if ($done === 3) $cervical['hpvDna']++;
+                if ($done === 0) $cervical['assessedOnly']++;
+
+                $result = (int) ($rec->cervical_result ?? 0);
+                $linked = (int) ($rec->cervical_linked_to_care ?? 0);
+
+                if ($result === 1) {
                     $cervical['suspicious']++;
+                    if (in_array($linked, [1, 2], true)) $cervical['suspiciousLinkedToCare']++;
+                    if ($linked === 1) $cervical['suspiciousLinkedTreated']++;
+                    if ($linked === 2) $cervical['suspiciousLinkedReferred']++;
+                }
+                if ($result === 2) {
+                    $cervical['precancerous']++;
+                    if (in_array($linked, [1, 2], true)) $cervical['precancerousLinkedToCare']++;
+                    if ($linked === 1) $cervical['precancerousLinkedTreated']++;
+                    if ($linked === 2) $cervical['precancerousLinkedReferred']++;
                 }
             }
-            if ($this->truthy($rec->cervical_linked_to_care ?? null)) {
-                $cervical['linkedToCare']++;
+
+            // ── E9. Breast Cancer ──
+            $riskVal = $rec->breast_risk_assessment ?? '';
+            $examType = strtoupper(trim((string) ($rec->breast_exam_type ?? '')));
+            $isCbe = $examType === 'CBE';
+            $isMammogram = $examType === 'M';
+            $isSymptomaticPath = ($hasToken($riskVal, '1') || $hasToken($riskVal, '2')) && $hasToken($riskVal, 'A');
+            $isAsymptomaticPath = $hasToken($riskVal, '0') && $hasToken($riskVal, 'B');
+            $isRemarkable = (int) ($rec->breast_result ?? 0) === 3;
+            $isLinkedToCare = (int) ($rec->breast_linked_to_care ?? 0) === 1;
+
+            // Item 1 has no source condition in the spec; counted as any woman
+            // aged 30-69 with a breast assessment record in the period.
+            if ($age !== null && $age >= 30 && $age <= 69 && ($isSymptomaticPath || $isAsymptomaticPath)) {
+                $breast['seen']++;
             }
 
-            $examType = strtolower((string) ($rec->breast_exam_type ?? ''));
-            $isCbe = str_contains($examType, 'cbe') || str_contains($examType, 'clinical');
-            $isMammogram = str_contains($examType, 'mammo');
-
-            if ($this->truthy($rec->breast_risk_assessment ?? null)) {
-                $breast['seen']++;
+            if ($age !== null && $age >= 30 && $age <= 69 && $isSymptomaticPath) {
                 $breast['highRiskOrSymptomatic']++;
-                if ($isCbe) $breast['providedCbe']++;
-                if ($isMammogram) $breast['providedMammogram']++;
-                if ($this->truthy($rec->breast_result ?? null)) {
-                    if ($isCbe) $breast['remarkableCbe']++;
-                    if ($isMammogram) $breast['remarkableMammogram']++;
+
+                if ($isCbe || $isMammogram) {
+                    $breast['provided']++;
+                    if ($isCbe) $breast['providedCbe']++;
+                    if ($isMammogram) $breast['providedMammogram']++;
+
+                    if ($isRemarkable) {
+                        $breast['remarkable']++;
+                        if ($isCbe) $breast['remarkableCbe']++;
+                        if ($isMammogram) $breast['remarkableMammogram']++;
+
+                        if ($isLinkedToCare) {
+                            $breast['linkedToCare']++;
+                            if ($isCbe) $breast['linkedToCareCbe']++;
+                            if ($isMammogram) $breast['linkedToCareMammogram']++;
+                        }
+                    }
                 }
-                if ($this->truthy($rec->breast_linked_to_care ?? null)) {
-                    $breast['linkedToCare']++;
-                }
-            } elseif ($isCbe || $isMammogram) {
-                // Screened but not flagged high-risk/symptomatic => asymptomatic screening
-                $breast['seen']++;
+            }
+
+            // Item 6: asymptomatic women aged 50-69
+            if ($age !== null && $age >= 50 && $age <= 69 && $isAsymptomaticPath && ($isCbe || $isMammogram)) {
                 $breast['asymptomaticScreened']++;
+                if ($isCbe) $breast['asymptomaticCbe']++;
+                if ($isMammogram) $breast['asymptomaticMammogram']++;
             }
         }
 
@@ -1182,6 +1349,8 @@ class PhoReportController extends Controller
                 'dm2059'   => $dm2059,
                 'dm60plus' => $dm60plus,
                 'blindness' => $blindness,
+                'seniorImmunization' => $seniorImmunization,
+                'geriatricScreening' => $geriatricScreening,
                 'mentalHealth' => $mentalHealth,
                 'cervical' => $cervical,
                 'breast'   => $breast,
@@ -1250,6 +1419,16 @@ class PhoReportController extends Controller
      * schistosomiasis_registry, sth_registry_records or leprosy_registry carry a
      * profileId column, so none of this section can be scoped by
      * region/province/municipality/barangay — only by the reporting month.
+     * schistosomiasis.mdaGiven5_14/15_19/20_59/60plus assumes item 14's spec
+     * text (age_group = "B" repeated for all four sub-rows) is a copy-paste
+     * error and maps age groups B/C/D/E respectively — verify against source.
+     * leprosy.newlyDetected* assumes item 2's identical 2a/2b/2c spec text
+     * (case_history = 0, no age filter) should also be gated by age_group —
+     * verify against source.
+     * hivAidsSti is sourced from maternal_care_records joined to
+     * prenatal_lab_screening_records (via the prenatalLabScreening relation),
+     * scoped by household location like the maternal care report, and bumped
+     * as female since there is no separate sex column on that table.
      */
     public function infectiousDisease(Request $request)
     {
@@ -1308,26 +1487,117 @@ class PhoReportController extends Controller
         }
 
         // ── C. Schistosomiasis ────────────────────────────────────────────
+        // age_group: A = 1-4, B = 5-14, C = 15-19, D = 20-59, E = 60+
+        $schAgeSuffix = ['A' => '1_4', 'B' => '5_14', 'C' => '15_19', 'D' => '20_59', 'E' => '60plus'];
         $schistosomiasis = [];
-        $schRecords = SchistosomiasisRegistry::query()
-            ->get()
-            ->filter(fn ($r) => $inPeriod($r->date_of_registration ?? null));
+        $schRecords = SchistosomiasisRegistry::query()->get();
 
         foreach ($schRecords as $rec) {
             $sex = $rec->sex ?? null;
-            $bump($schistosomiasis, 'patientsSeen', $sex);
-            if ($this->truthy($rec->with_signs_symptoms ?? null)) {
-                $bump($schistosomiasis, 'suspectedCases', $sex);
+            $ag = strtoupper(trim((string) ($rec->age_group ?? '')));
+            $suffix = in_array($ag, ['A', 'B', 'C', 'D', 'E'], true) ? $schAgeSuffix[$ag] : null;
+            $regInPeriod = $inPeriod($rec->date_of_registration ?? null);
+
+            if ($regInPeriod) {
+                // 1 / 1a-1e. Patients Seen
+                $bump($schistosomiasis, 'patientsSeen', $sex);
+                if ($suffix) $bump($schistosomiasis, "patientsSeen{$suffix}", $sex);
+
+                $withSigns = $this->truthy($rec->with_signs_symptoms ?? null);
+                $clinicalTreated = $this->truthy($rec->clinical_first_treatment_given ?? null) || $this->truthy($rec->clinical_retreatment ?? null);
+                $clinicalCured = $this->truthy($rec->clinical_cured ?? null);
+                $complicated = $this->truthy($rec->complicated ?? null);
+                // "complicated = 0" per the spec means explicitly recorded as
+                // non-complicated, not merely absent/null.
+                $nonComplicated = isset($rec->complicated) && !$this->truthy($rec->complicated);
+                $confirmedRetreated = $this->truthy($rec->confirmed_retreatment ?? null);
+                $confirmedCured = $this->truthy($rec->confirmed_cured ?? null);
+
+                // 2 / 2a-2e. Clinical/Suspected Cases Seen
+                if ($withSigns) {
+                    $bump($schistosomiasis, 'suspectedCases', $sex);
+                    if ($suffix) $bump($schistosomiasis, "suspectedCases{$suffix}", $sex);
+                }
+
+                // 3 / 3a-3d. Clinical/Suspected Cases Treated, by age (5-14 and up only)
+                if ($clinicalTreated) {
+                    $bump($schistosomiasis, 'treatedByAge', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "treated{$suffix}", $sex);
+                }
+                // 4a-4b. Treated by treatment type (not age-gated)
+                if ($this->truthy($rec->clinical_first_treatment_given ?? null)) $bump($schistosomiasis, 'treatedFirst', $sex);
+                if ($this->truthy($rec->clinical_retreatment ?? null)) $bump($schistosomiasis, 'treatedRetreatment', $sex);
+
+                // 5 / 5a-5d. Cured, by age (5-14 and up only)
+                if ($clinicalCured) {
+                    $bump($schistosomiasis, 'cured', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "cured{$suffix}", $sex);
+                }
+
+                // 6 / 6a-6e. Confirmed COMPLICATED, by age
+                if ($complicated) {
+                    $bump($schistosomiasis, 'complicated', $sex);
+                    if ($suffix) $bump($schistosomiasis, "complicated{$suffix}", $sex);
+                }
+                // 7 / 7a-7e. Confirmed NON-COMPLICATED, by age
+                if ($nonComplicated) {
+                    $bump($schistosomiasis, 'nonComplicated', $sex);
+                    if ($suffix) $bump($schistosomiasis, "nonComplicated{$suffix}", $sex);
+                }
+
+                // 8 / 8a-8d. Confirmed COMPLICATED TREATED, by age (5-14 and up only)
+                if ($complicated && $confirmedRetreated) {
+                    $bump($schistosomiasis, 'complicatedTreated', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "complicatedTreated{$suffix}", $sex);
+                }
+                // 9 / 9a-9d. Confirmed NON-COMPLICATED TREATED, by age (5-14 and up only)
+                if ($nonComplicated && $confirmedRetreated) {
+                    $bump($schistosomiasis, 'nonComplicatedTreated', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "nonComplicatedTreated{$suffix}", $sex);
+                }
+                // 10a-10b. Confirmed Treated by treatment (not age-gated)
+                if ($this->truthy($rec->confirmed_first_treatment_given ?? null)) $bump($schistosomiasis, 'confirmedTreatedFirst', $sex);
+                if ($confirmedRetreated) $bump($schistosomiasis, 'confirmedTreatedRetreatment', $sex);
+
+                // 11 / 11a-11d. Confirmed COMPLICATED CURED, by age (5-14 and up only)
+                if ($complicated && $confirmedCured) {
+                    $bump($schistosomiasis, 'complicatedCured', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "complicatedCured{$suffix}", $sex);
+                }
+                // 12 / 12a-12d. Confirmed NON-COMPLICATED CURED, by age (5-14 and up only)
+                if ($nonComplicated && $confirmedCured) {
+                    $bump($schistosomiasis, 'nonComplicatedCured', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "nonComplicatedCured{$suffix}", $sex);
+                }
+
+                // 14 / 14a-14d. Dewormed with Praziquantel during MDA, by age (5-14
+                // and up). NOTE: the spec repeats age_group = "B" for all four
+                // sub-rows (14a-14d), which looks like a copy-paste error given the
+                // labels are 5-14/15-19/20-59/60+ — mapped to B/C/D/E respectively,
+                // consistent with every other item in this section. Verify against
+                // the source spec if that's not the intent.
+                if ($this->truthy($rec->mda_given ?? null) || !empty($rec->mda_date_given)) {
+                    $bump($schistosomiasis, 'mdaGiven', $sex);
+                    if (in_array($ag, ['B', 'C', 'D', 'E'], true)) $bump($schistosomiasis, "mdaGiven{$suffix}", $sex);
+                }
             }
-            if (!empty($rec->date_referred_to_hospital)) {
+
+            // 13 / 13a-13e. Referred to Hospital — gated by date_referred_to_hospital
+            // falling in the reporting period, independent of date_of_registration.
+            $referredDate = $this->parseDateOrNull($rec->date_referred_to_hospital ?? null);
+            if ($referredDate && $referredDate->between($startOfSelected, $endOfSelected)) {
                 $bump($schistosomiasis, 'referredToHospital', $sex);
-            }
-            if ($this->truthy($rec->mda_given ?? null) || !empty($rec->mda_date_given)) {
-                $bump($schistosomiasis, 'mdaGiven', $sex);
+                if ($suffix) $bump($schistosomiasis, "referredToHospital{$suffix}", $sex);
             }
         }
 
         // ── D. Soil-Transmitted Helminthiasis (STH) ──────────────────────
+        // age_classification: A = 1-4, B = 5-14, C = 15-19, D = 20-59, E = 60+
+        // residency: 1 = Resident, 0 = Non-Resident
+        // screening_result: 1 = Suspected, 2 = Confirmed
+        // treatment_given: 1 or 2 = treated
+        // january_mda_modality / july_mda_modality: 1 = School-Based, 2 = Community
+        $sthAgeSuffix = ['A' => '1_4', 'B' => '5_14', 'C' => '15_19', 'D' => '20_59', 'E' => '60plus'];
         $sth = [];
         $sthRecords = SthRegistryRecord::query()
             ->get()
@@ -1335,31 +1605,96 @@ class PhoReportController extends Controller
 
         foreach ($sthRecords as $rec) {
             $sex = $rec->sex ?? null;
-            $residency = strtolower((string) ($rec->residency ?? ''));
-            $isResident = str_contains($residency, 'resident') && !str_contains($residency, 'non');
-            $isNonResident = str_contains($residency, 'non');
-            $result = strtolower((string) ($rec->screening_result ?? ''));
+            $ac = strtoupper(trim((string) ($rec->age_classification ?? '')));
+            $suffix = isset($sthAgeSuffix[$ac]) ? $sthAgeSuffix[$ac] : null;
 
-            if ($this->truthy($rec->screened ?? null)) {
-                $bump($sth, 'screened', $sex);
-            }
-            if (str_contains($result, 'suspect')) {
-                if ($isResident) $bump($sth, 'suspectedResident', $sex);
+            // residency is 1/0, so a plain truthy() check can't distinguish
+            // "non-resident" (0) from "not recorded" (null).
+            $residency = $rec->residency ?? null;
+            $isResident    = $residency !== null && (int) $residency === 1;
+            $isNonResident = $residency !== null && (int) $residency === 0;
+
+            $result = (int) ($rec->screening_result ?? 0);
+            $isSuspected = $result === 1;
+            $isConfirmed = $result === 2;
+            $isTreated = in_array((int) ($rec->treatment_given ?? 0), [1, 2], true);
+
+            $janModality = (int) ($rec->january_mda_modality ?? 0);
+            $julModality = (int) ($rec->july_mda_modality ?? 0);
+
+            // 1 / 1a-1e. Screened for STH (any record registered in the period)
+            $bump($sth, 'screened', $sex);
+            if ($suffix) $bump($sth, "screened{$suffix}", $sex);
+
+            // 2 / 2a-2b. Suspected by place of diagnosis
+            // NOTE: the spec's 2a/2b conditions omit screening_result, so items 2
+            // and 3 would disagree; residency alone is not "suspected". Filtered
+            // by screening_result = 1 here so 2 and 3 reconcile — verify intent.
+            if ($isSuspected) {
+                $bump($sth, 'suspected', $sex);
+                if ($isResident)    $bump($sth, 'suspectedResident', $sex);
                 if ($isNonResident) $bump($sth, 'suspectedNonResident', $sex);
+                // 3 / 3a-3e. Suspected by age group
+                if ($suffix) $bump($sth, "suspected{$suffix}", $sex);
             }
-            if (str_contains($result, 'confirm')) {
-                if ($isResident) $bump($sth, 'confirmedResident', $sex);
+
+            // 4 / 4a-4b and 5 / 5a-5e. Confirmed by place of diagnosis / age group
+            if ($isConfirmed) {
+                $bump($sth, 'confirmed', $sex);
+                if ($isResident)    $bump($sth, 'confirmedResident', $sex);
                 if ($isNonResident) $bump($sth, 'confirmedNonResident', $sex);
+                if ($suffix) $bump($sth, "confirmed{$suffix}", $sex);
             }
-            if ($this->truthy($rec->treatment_given ?? null)) {
-                if ($isResident) $bump($sth, 'treatedResident', $sex);
+
+            // 6 / 6a-6b and 7 / 7a-7e. Treated by place of diagnosis / age group
+            if ($isTreated) {
+                $bump($sth, 'treated', $sex);
+                if ($isResident)    $bump($sth, 'treatedResident', $sex);
                 if ($isNonResident) $bump($sth, 'treatedNonResident', $sex);
+                if ($suffix) $bump($sth, "treated{$suffix}", $sex);
             }
-            if (!empty($rec->january_mda_date)) $bump($sth, 'januaryMda', $sex);
-            if (!empty($rec->july_mda_date)) $bump($sth, 'julyMda', $sex);
+
+            // 8 / 9. 1-4 year olds dewormed during January / July MDA, by modality
+            if ($ac === 'A') {
+                if ($janModality === 1 || $janModality === 2) {
+                    $bump($sth, 'januaryMda1_4', $sex);
+                    if ($janModality === 1) $bump($sth, 'januaryMda1_4School', $sex);
+                    if ($janModality === 2) $bump($sth, 'januaryMda1_4Community', $sex);
+                }
+                if ($julModality === 1 || $julModality === 2) {
+                    $bump($sth, 'julyMda1_4', $sex);
+                    if ($julModality === 1) $bump($sth, 'julyMda1_4School', $sex);
+                    if ($julModality === 2) $bump($sth, 'julyMda1_4Community', $sex);
+                }
+            }
+
+            // 10 / 11. 5-14 year olds dewormed during January / July MDA, by modality
+            if ($ac === 'B') {
+                if ($janModality === 1 || $janModality === 2) {
+                    $bump($sth, 'januaryMda5_14', $sex);
+                    if ($janModality === 1) $bump($sth, 'januaryMda5_14School', $sex);
+                    if ($janModality === 2) $bump($sth, 'januaryMda5_14Community', $sex);
+                }
+                if ($julModality === 1 || $julModality === 2) {
+                    $bump($sth, 'julyMda5_14', $sex);
+                    if ($julModality === 1) $bump($sth, 'julyMda5_14School', $sex);
+                    if ($julModality === 2) $bump($sth, 'julyMda5_14Community', $sex);
+                }
+            }
+
+            // 12 / 12a-12b. 15-19 year olds dewormed during January / July MDA
+            if ($ac === 'C') {
+                $janDewormed = ($janModality === 1 || $janModality === 2);
+                $julDewormed = ($julModality === 1 || $julModality === 2);
+                if ($janDewormed) $bump($sth, 'adolescentJanuaryMda', $sex);
+                if ($julDewormed) $bump($sth, 'adolescentJulyMda', $sex);
+                if ($janDewormed || $julDewormed) $bump($sth, 'adolescentMda', $sex);
+            }
         }
 
         // ── E. Leprosy ────────────────────────────────────────────────────
+        // age_group: A = 0-14, B = 15-18, C = 19+
+        $lepAgeSuffix = ['A' => '0_14', 'B' => '15_18', 'C' => '19plus'];
         $leprosy = [];
         $lepRecords = LeprosyRegistry::query()
             ->get()
@@ -1367,22 +1702,106 @@ class PhoReportController extends Controller
 
         foreach ($lepRecords as $rec) {
             $sex = $rec->sex ?? null;
+            $ag = strtoupper(trim((string) ($rec->age_group ?? '')));
+            $suffix = $lepAgeSuffix[$ag] ?? null;
+
+            // 1 / 1a-1c. Registered cases
             $bump($leprosy, 'registered', $sex);
+            if ($suffix) $bump($leprosy, "registered{$suffix}", $sex);
+
+            // 2 / 2a-2c. Newly detected cases.
+            // NOTE: the spec gives the identical condition (case_history = 0, no
+            // age filter) for 2a/2b/2c, which can't distinguish the three
+            // sub-rows. Assumed to mean case_history = 0 AND age_group = A/B/C
+            // respectively, consistent with every other item here — verify
+            // against source.
+            if ((int) ($rec->case_history ?? -1) === 0) {
+                $bump($leprosy, 'newlyDetected', $sex);
+                if ($suffix) $bump($leprosy, "newlyDetected{$suffix}", $sex);
+            }
+
+            // 3 / 3a-3c. Confirmed cases
             if ($this->truthy($rec->confirmed_case ?? null)) {
                 $bump($leprosy, 'confirmed', $sex);
+                if ($suffix) $bump($leprosy, "confirmed{$suffix}", $sex);
             }
-            $diagnosed = $this->parseDateOrNull($rec->date_of_diagnosis ?? null);
-            if ($diagnosed && $diagnosed->between($startOfSelected, $endOfSelected)) {
-                $bump($leprosy, 'newlyDetected', $sex);
-            }
-            if ($this->truthy($rec->completed_fixed_mdt ?? null) || $this->truthy($rec->beyond_fixed_mdt ?? null)) {
+
+            // 4 / 4a-4c. Completed fixed-duration MDT
+            if ($this->truthy($rec->completed_fixed_mdt ?? null)) {
                 $bump($leprosy, 'completedMdt', $sex);
+                if ($suffix) $bump($leprosy, "completedMdt{$suffix}", $sex);
             }
-            if (!empty($rec->treatment_outcome ?? null)) {
+
+            // 5 / 5a-5c. Confirmed cases treated (beyond fixed-duration MDT) —
+            // distinct from item 4; previously these two were merged.
+            if ($this->truthy($rec->beyond_fixed_mdt ?? null)) {
                 $bump($leprosy, 'treated', $sex);
+                if ($suffix) $bump($leprosy, "treated{$suffix}", $sex);
             }
+
+            // 6 / 6a-6c. Newly detected with Grade 2 Disability
             if ($this->truthy($rec->grade2_disability ?? null)) {
                 $bump($leprosy, 'grade2Disability', $sex);
+                if ($suffix) $bump($leprosy, "grade2Disability{$suffix}", $sex);
+            }
+        }
+
+        // ── F. HIV-AIDS/STI (prenatal_lab_screening_records via maternal_care_records) ──
+        // maternal_care_records.ageGroup: "A - 10-14 years old" / "B - 15-19 years old" / "C - 20-49 years old"
+        $stiAgeSuffix = ['A' => '10_14', 'B' => '15_19', 'C' => '20_49'];
+        $hivAidsSti = [];
+        $stiRecords = MaternalCareRecord::query()
+            ->with(['prenatalLabScreening'])
+            ->whereHas('householdProfile', function ($q) use ($location) {
+                $this->applyHouseholdLocationFilter($q, $location);
+            })
+            ->get();
+
+        foreach ($stiRecords as $mrec) {
+            $lab = $mrec->prenatalLabScreening;
+            if (!$lab) continue;
+
+            $agLetter = strtoupper(trim(explode(' - ', (string) ($mrec->ageGroup ?? ''))[0] ?? ''));
+            $suffix = $stiAgeSuffix[$agLetter] ?? null;
+            // All records here are pregnant women; there is no separate sex
+            // column on maternal_care_records, so counts are bumped as female.
+            $sex = 'female';
+
+            $syphilisDate = $this->parseDateOrNull($lab->syphilisDate ?? null);
+            if ($syphilisDate && $syphilisDate->between($startOfSelected, $endOfSelected)) {
+                $bump($hivAidsSti, 'syphilisScreened', $sex);
+                if ($suffix) $bump($hivAidsSti, "syphilisScreened{$suffix}", $sex);
+
+                if ($this->contains($lab->syphilisResult ?? null, 'reactive')) {
+                    $bump($hivAidsSti, 'syphilisReactive', $sex);
+                    if ($suffix) $bump($hivAidsSti, "syphilisReactive{$suffix}", $sex);
+                }
+                if ($this->truthy($lab->syphilisTreatment ?? null) || $this->contains($lab->syphilisTreatment ?? null, 'yes')) {
+                    $bump($hivAidsSti, 'syphilisTreated', $sex);
+                    if ($suffix) $bump($hivAidsSti, "syphilisTreated{$suffix}", $sex);
+                }
+            }
+
+            $hivDate = $this->parseDateOrNull($lab->hivDate ?? null);
+            if ($hivDate && $hivDate->between($startOfSelected, $endOfSelected)) {
+                $bump($hivAidsSti, 'hivScreened', $sex);
+                if ($suffix) $bump($hivAidsSti, "hivScreened{$suffix}", $sex);
+
+                if ($this->contains($lab->hivResult ?? null, 'reactive')) {
+                    $bump($hivAidsSti, 'hivReactive', $sex);
+                    if ($suffix) $bump($hivAidsSti, "hivReactive{$suffix}", $sex);
+                }
+            }
+
+            $hepBDate = $this->parseDateOrNull($lab->hepBDate ?? null);
+            if ($hepBDate && $hepBDate->between($startOfSelected, $endOfSelected)) {
+                $bump($hivAidsSti, 'hepBScreened', $sex);
+                if ($suffix) $bump($hivAidsSti, "hepBScreened{$suffix}", $sex);
+
+                if ($this->contains($lab->hepBResult ?? null, 'reactive')) {
+                    $bump($hivAidsSti, 'hepBReactive', $sex);
+                    if ($suffix) $bump($hivAidsSti, "hepBReactive{$suffix}", $sex);
+                }
             }
         }
 
@@ -1395,6 +1814,7 @@ class PhoReportController extends Controller
                 'schistosomiasis' => $schistosomiasis,
                 'sth'             => $sth,
                 'leprosy'         => $leprosy,
+                'hivAidsSti'      => $hivAidsSti,
             ],
         ]);
     }

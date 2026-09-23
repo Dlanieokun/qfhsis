@@ -60,6 +60,11 @@ class SyncController extends Controller
         // --- NEW: Mental & Environmental Health ---
         'mentalHealthRecords'             => 'mental_health_records',
         'environmentalHealthRecords'      => 'environmental_health_records',
+
+        // --- NEW: Vital Statistics & Morbidity ---
+        'infantDeathRecords'              => 'infant_deaths',
+        'maternalDeathRecords'            => 'maternal_deaths',
+        'morbidityRecords'                => 'morbidity_records',
     ];
 
     // ─────────────────────────────────────────────────────────────
@@ -83,9 +88,12 @@ class SyncController extends Controller
     //  Tables NOT listed here — child_sick_records, geriatric_screening_records,
     //  filariasis_registry_table, leprosy_registry, rabies_records,
     //  schistosomiasis_registry, sth_registry_records, mental_health_records,
-    //  environmental_health_records — have no household_profiles linkage
-    //  column in their current schema, so there's nothing to scope them by;
-    //  they're still pulled in full until a link column is added.
+    //  morbidity_records — have no household_profiles linkage column in their
+    //  current schema, so there's nothing to scope them by; they're still pulled
+    //  in full until a link column is added. (morbidity_records carries a
+    //  householdId string, but it isn't a foreign key into household_profiles.id,
+    //  so it can't be scoped the same way infant_deaths/maternal_deaths are below.
+    //  environmental_health_records now has profileId and IS location-scoped below.)
     private array $locationScopedTables = [
         'household_profiles' => ['relation' => 'direct'],
 
@@ -108,6 +116,11 @@ class SyncController extends Controller
         'intrapartum_records'                => ['relation' => 'maternal', 'column' => 'maternalRecordId'],
         'prenatal_lab_screening_records'     => ['relation' => 'maternal', 'column' => 'maternalRecordId'],
         'prenatal_supplementation_records'  => ['relation' => 'maternal', 'column' => 'maternal_record_id'],
+
+        'infant_deaths'                      => ['relation' => 'profile', 'column' => 'profile_id'],
+        'maternal_deaths'                    => ['relation' => 'profile', 'column' => 'profile_id'],
+
+        'environmental_health_records'       => ['relation' => 'profile', 'column' => 'profileId'],
     ];
 
     // ─────────────────────────────────────────────────────────────
@@ -164,6 +177,65 @@ class SyncController extends Controller
                             ]);
                             $skippedRecords[] = ['table' => $dbTableName, 'reason' => 'missing_id'];
                             continue;
+                        }
+
+                        // ==========================================
+                        // FOREIGN KEY PRE-VALIDATION
+                        // ==========================================
+                        // Tables that carry a profile_id FK into household_profiles
+                        // must have a valid server-side profile_id before we attempt
+                        // any insert or update. Two failure modes arrive here:
+                        //
+                        //   a) profile_id = 0 — Room's default int value. The Android
+                        //      record was saved locally before a profileId was ever
+                        //      assigned (e.g. the user saved the form before selecting
+                        //      a household, or the field was simply never set in the
+                        //      fragment). There is no way to resolve 0 to a real server
+                        //      row, so we skip and warn.
+                        //
+                        //   b) profile_id = <Android-local auto-increment> — the profile
+                        //      was pushed in the same batch and the array_walk_recursive
+                        //      swap should have rewritten this value to the real server ID.
+                        //      If it still doesn't match (e.g. the profile push failed, or
+                        //      this record was left over from a prior sync session where the
+                        //      profile landed under a different server ID), we skip and warn
+                        //      rather than letting MySQL throw a cryptic FK error.
+                        //
+                        // The $locationScopedTables map already catalogues which tables
+                        // have a profile_id relation and what the column is called, so we
+                        // reuse it here instead of duplicating the list.
+                        $profileFkColumn = null;
+                        if (
+                            array_key_exists($dbTableName, $this->locationScopedTables)
+                            && isset($this->locationScopedTables[$dbTableName]['relation'])
+                            && $this->locationScopedTables[$dbTableName]['relation'] === 'profile'
+                        ) {
+                            $profileFkColumn = $this->locationScopedTables[$dbTableName]['column'];
+                        }
+
+                        if ($profileFkColumn !== null && array_key_exists($profileFkColumn, $record)) {
+                            $fkValue = $record[$profileFkColumn];
+                            if (
+                                $fkValue === null
+                                || $fkValue === ''
+                                || (int) $fkValue <= 0
+                                || !DB::table('household_profiles')->where('id', $fkValue)->exists()
+                            ) {
+                                Log::warning("Sync push: skipped record — profile_id {$fkValue} not found in household_profiles", [
+                                    'table'          => $dbTableName,
+                                    'profile_id'     => $fkValue,
+                                    'fk_column'      => $profileFkColumn,
+                                    'hint'           => $fkValue == 0
+                                        ? 'profile_id is 0 (Room default) — the Android record was created without a valid household profile reference'
+                                        : 'profile_id does not match any server household_profiles row — the household may not have been uploaded yet',
+                                ]);
+                                $skippedRecords[] = [
+                                    'table'      => $dbTableName,
+                                    'reason'     => 'invalid_profile_fk',
+                                    'profile_id' => $fkValue,
+                                ];
+                                continue;
+                            }
                         }
 
                         // ==========================================
@@ -265,6 +337,39 @@ class SyncController extends Controller
                             }
                         }
 
+                        // ── cervical_cancer_screenings ──────────────────────────────────
+                        // Three fixes needed for this table:
+                        //
+                        // 1. isSynced: strip it — the server owns this column's value
+                        //    (set to false on insert; only updated by the pull path).
+                        //    Leaving it in would either overwrite the server's value or
+                        //    cause an "Unknown column" error on tables that don't have it.
+                        //
+                        // 2. updated_at → updatedAt: Android's @SerializedName was "updated_at"
+                        //    but the migration created the column as `updatedAt` (camelCase).
+                        //    After fixing the entity's @SerializedName to "updatedAt", the key
+                        //    arriving here is "updatedAt". We must NOT let the generic
+                        //    auto-timestamp block below rename/overwrite it with a datetime
+                        //    string — the column stores epoch milliseconds, not a datetime.
+                        //    We handle it explicitly here and exclude it from the generic block.
+                        //
+                        // 3. The generic "auto-timestamp fallback" below would also try to
+                        //    write to "updated_at" (Laravel's managed timestamp), which does
+                        //    exist in this table via $table->timestamps() — so we still let
+                        //    that run for created_at / updated_at (the Laravel timestamps),
+                        //    but we guard the custom updatedAt column separately.
+                        if ($dbTableName === 'cervical_cancer_screenings') {
+                            // Strip isSynced — server owns it
+                            unset($record['isSynced']);
+
+                            // The Android entity now sends "updatedAt" (epoch ms).
+                            // Cast to int to be safe and leave it in the record so it
+                            // lands in the `updatedAt` DB column.
+                            if (isset($record['updatedAt'])) {
+                                $record['updatedAt'] = (int) $record['updatedAt'];
+                            }
+                        }
+
                         // Auto-timestamp fallback for tables that skip classification_metrics block
                         if (!in_array($dbTableName, ['classification_metrics'])) {
                             if (!isset($record['created_at'])) {
@@ -301,6 +406,19 @@ class SyncController extends Controller
                         unset($record['newInsert']);
 
                         $pkValue = $record[$jsonPkName];
+
+                        // --- NEW: Vital Statistics & Morbidity column translation ---
+                        // InfantDeathRecord / MaternalDeathRecord / MorbidityRecord send
+                        // camelCase JSON keys (profileId, dateOfRegistration, ageGroup,
+                        // householdId, isSynced, ...), matching the Java field names —
+                        // same as every other table here. But infant_deaths,
+                        // maternal_deaths and morbidity_records were migrated using
+                        // Laravel's default snake_case column convention instead of
+                        // mirroring those field names, so the raw JSON keys don't match
+                        // any real column. Translate before insert/update.
+                        if (in_array($dbTableName, ['infant_deaths', 'maternal_deaths', 'morbidity_records'])) {
+                            $record = $this->translateVitalStatsColumns($dbTableName, $record, true);
+                        }
 
                         if ($isNewInsert) {
                             if ($dbTableName === 'household_profiles') {
@@ -339,12 +457,22 @@ class SyncController extends Controller
                                 try {
                                     DB::table($dbTableName)->insert($record);
                                 } catch (\Illuminate\Database\QueryException $e) {
-                                    // Without a specified PK, a 23000 violation can only come
-                                    // from a non-PK unique constraint — log and skip the row
-                                    // rather than aborting the whole sync batch.
+                                    // SQLSTATE 23000 covers two distinct violation types:
+                                    //   • Foreign key constraint failure  (ER_NO_REFERENCED_ROW_2, errno 1452)
+                                    //   • Duplicate / unique key violation (ER_DUP_ENTRY,          errno 1062)
+                                    //
+                                    // The original comment said "without a specified PK a 23000 can
+                                    // only be a unique constraint" — that was wrong. A bad profile_id
+                                    // or any other FK field produces 23000 too. Log the actual sub-type
+                                    // so the warning in storage/logs/laravel.log is actionable.
                                     if ($e->getCode() === '23000') {
-                                        Log::warning("Sync push: unique constraint violation on {$dbTableName}", [
-                                            'error' => $e->getMessage(),
+                                        $msg     = $e->getMessage();
+                                        $isFk    = stripos($msg, 'foreign key') !== false
+                                               || stripos($msg, '1452')         !== false;
+                                        $logType = $isFk ? 'foreign_key_violation' : 'unique_constraint_violation';
+
+                                        Log::warning("Sync push: {$logType} on {$dbTableName}", [
+                                            'error' => $msg,
                                         ]);
                                     } else {
                                         throw $e;
@@ -557,8 +685,25 @@ class SyncController extends Controller
         // the moment it hits that field. Cast it once, generically, for
         // every table instead of needing a per-table entry like the
         // other boolean columns below.
+        // --- NEW: Vital Statistics & Morbidity column translation (reverse) ---
+        // Undo the push-side translation so Android sees the camelCase keys
+        // its InfantDeathRecord / MaternalDeathRecord / MorbidityRecord
+        // entities actually declare, instead of this table's raw snake_case
+        // column names. Must run before the generic boolean casts below.
+        if (in_array($dbTableName, ['infant_deaths', 'maternal_deaths', 'morbidity_records'])) {
+            $record = $this->translateVitalStatsColumns($dbTableName, $record, false);
+        }
+
         if (array_key_exists('isSynced', $record)) {
             $record['isSynced'] = (bool) $record['isSynced'];
+        }
+
+        // FIX: InfantDeathRecord.synced / MaternalDeathRecord.synced are also
+        // Java `boolean` primitives (named `synced`, not `isSynced`), so they
+        // hit the exact same Gson "Expected a boolean but was NUMBER" issue
+        // described above and need the same TINYINT(1) → bool cast.
+        if (array_key_exists('synced', $record)) {
+            $record['synced'] = (bool) $record['synced'];
         }
 
         // ──────────────────────────────────────────────────────────
@@ -693,7 +838,100 @@ class SyncController extends Controller
             }
         }
 
+        // ── cervical_cancer_screenings (pull) ───────────────────────────────
+        // 1. isSynced / newInsert — already cast generically above via the
+        //    array_key_exists('isSynced') / array_key_exists('newInsert') blocks,
+        //    so no repeat needed here.
+        //
+        // 2. updatedAt — this column stores epoch milliseconds (unsignedBigInteger
+        //    in the migration), NOT a datetime string, so the generic datetime→ms
+        //    cast in the foreach(['created_at','updated_at']) loop above does NOT
+        //    apply to it. DB::table() will return it as a plain integer already;
+        //    just ensure it's cast to int in case the driver returns a string.
+        //
+        // 3. The standard Laravel `created_at` / `updated_at` datetime columns
+        //    (from $table->timestamps()) are handled correctly by the generic loop.
+        if ($dbTableName === 'cervical_cancer_screenings') {
+            if (array_key_exists('updatedAt', $record)) {
+                $record['updatedAt'] = (int) $record['updatedAt'];
+            }
+        }
+
         return $record;
+    }
+
+    /**
+     * infant_deaths, maternal_deaths and morbidity_records were migrated
+     * using Laravel's default snake_case column convention, but their
+     * Android entities (InfantDeathRecord, MaternalDeathRecord,
+     * MorbidityRecord) use camelCase field names — unlike most other tables
+     * in this controller, where the DB columns were written to mirror the
+     * Android field names directly instead. Translate keys between the two
+     * shapes here rather than relying on either side matching by accident.
+     *
+     * $toDb = true  : camelCase Android field → snake_case DB column (push)
+     * $toDb = false : snake_case DB column → camelCase Android field (pull)
+     *
+     * NOTE: morbidity_records' current migration only has a handful of the
+     * columns MorbidityRecord actually carries — it has no region/province/
+     * municipality/barangay, no icd_code, and none of the 32 age-group
+     * male/female count columns. Any of those fields coming from Android
+     * are dropped here (rather than left in place to throw a SQL "Unknown
+     * column" error on insert) until the migration is extended to store
+     * them — see the accompanying note about this.
+     */
+    private function translateVitalStatsColumns(string $dbTableName, array $record, bool $toDb): array
+    {
+        $maps = [
+            'infant_deaths' => [
+                'profileId'          => 'profile_id',
+                'dateOfRegistration' => 'date_of_registration',
+                'fullName'           => 'full_name',
+                'completeAddress'    => 'complete_address',
+                'syncTimestamp'      => 'sync_timestamp',
+            ],
+            'maternal_deaths' => [
+                'profileId'          => 'profile_id',
+                'dateOfRegistration' => 'date_of_registration',
+                'fullName'           => 'full_name',
+                'completeAddress'    => 'complete_address',
+                'ageGroup'           => 'age_group',
+                'placeOfOccurrence'  => 'place_of_occurrence',
+                'causeOfDeath'       => 'cause_of_death',
+                'syncTimestamp'      => 'sync_timestamp',
+            ],
+            'morbidity_records' => [
+                'householdId'  => 'household_id',
+                'diseaseName'  => 'disease_name',
+                'reportYear'   => 'report_year',
+                'reportMonth'  => 'report_month',
+                'isSynced'     => 'is_synced',
+                // createdAt/updatedAt intentionally NOT mapped here — the
+                // generic "auto-timestamp fallback" further down always lets
+                // the server set created_at/updated_at itself, same as every
+                // other table that doesn't send its own.
+            ],
+        ];
+
+        $map = $toDb ? $maps[$dbTableName] : array_flip($maps[$dbTableName]);
+
+        $translated = [];
+        foreach ($record as $key => $value) {
+            $translated[$map[$key] ?? $key] = $value;
+        }
+
+        // Drop anything that still isn't a real column on morbidity_records
+        // (region, province, municipality, barangay, icdCode, and all
+        // age-group counts) so the insert/update doesn't fail outright.
+        if ($toDb && $dbTableName === 'morbidity_records') {
+            static $knownColumns = null;
+            if ($knownColumns === null) {
+                $knownColumns = Schema::getColumnListing('morbidity_records');
+            }
+            $translated = array_intersect_key($translated, array_flip($knownColumns));
+        }
+
+        return $translated;
     }
 
     // ─────────────────────────────────────────────────────────────

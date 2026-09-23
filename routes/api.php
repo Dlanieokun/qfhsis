@@ -62,3 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // barangay / municipality / province / region catchment area.
     Route::get('/sync/pull', [SyncController::class, 'syncToAndroid']);
 });
+
+// submit-program-report lives in routes/web.php now — it needs the
+// session-based `web` guard (same one Inertia's auth.user relies on),
+// not Sanctum tokens. See routes/web.php.

@@ -1,14 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
 
 // ─── Location Data Shapes ────────────────────────────────────────────────────
 interface Region { regCode: string; regDesc: string; }
 interface Province { provCode: string; provDesc: string; regCode: string; }
 interface Municipality { citymunCode: string; citymunDesc: string; provCode: string; }
+interface Barangay { brgyCode: string; brgyDesc: string; citymunCode: string; }
 
 interface A1AllProgramsProps {
   regions?: Region[];
   provinces?: Province[];
   municipalities?: Municipality[];
+  barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -18,6 +32,8 @@ interface FilterState {
   region?: string;
   province?: string;
   municipality?: string;
+  // Barangay is multi-select — a user may be assigned several barangay codes
+  barangays: string[];
   rhuName?: string;
 }
 
@@ -162,22 +178,28 @@ interface FilterPanelProps {
   filters: FilterState;
   onFilterChange: (filters: FilterState) => void;
   onApplyFilter: () => void;
+  onClearFilter: () => void;
   isLoading?: boolean;
   regions?: Region[];
   provinces?: Province[];
   municipalities?: Municipality[];
+  barangays?: Barangay[];
+  isLocationLocked?: boolean;
 }
 
 const FilterPanel: React.FC<FilterPanelProps> = ({
   filters,
   onFilterChange,
   onApplyFilter,
+  onClearFilter,
   isLoading = false,
   regions = [],
   provinces = [],
   municipalities = [],
+  barangays = [],
+  isLocationLocked = false,
 }) => {
-  const handleInputChange = (key: keyof FilterState, value: string) => {
+  const handleInputChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
     onFilterChange({
       ...filters,
       [key]: value,
@@ -190,6 +212,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
       region: value,
       province: '',
       municipality: '',
+      barangays: [],
     });
   };
 
@@ -198,6 +221,22 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
       ...filters,
       province: value,
       municipality: '',
+      barangays: [],
+    });
+  };
+
+  const handleMunicipalityChange = (value: string) => {
+    onFilterChange({
+      ...filters,
+      municipality: value,
+      barangays: [],
+    });
+  };
+
+  const toggleBarangay = (code: string, checked: boolean) => {
+    onFilterChange({
+      ...filters,
+      barangays: checked ? [...filters.barangays, code] : filters.barangays.filter((c) => c !== code),
     });
   };
 
@@ -208,6 +247,10 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   const filteredMunicipalities = useMemo(
     () => municipalities.filter((m) => m.provCode === filters.province),
     [filters.province, municipalities],
+  );
+  const filteredBarangays = useMemo(
+    () => barangays.filter((b) => b.citymunCode === filters.municipality),
+    [filters.municipality, barangays],
   );
 
   return (
@@ -254,8 +297,9 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           <label className="block text-xs font-semibold text-gray-700 mb-1">Region</label>
           <select
             value={filters.region || ''}
+            disabled={isLocationLocked}
             onChange={(e) => handleRegionChange(e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-100' : ''}`}
           >
             <option value="">Select Region</option>
             {regions.map((r) => (
@@ -269,9 +313,9 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           <label className="block text-xs font-semibold text-gray-700 mb-1">Province</label>
           <select
             value={filters.province || ''}
-            disabled={!filters.region}
+            disabled={isLocationLocked || !filters.region}
             onChange={(e) => handleProvinceChange(e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100"
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filters.region ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <option value="">Select Province</option>
             {filteredProvinces.map((p) => (
@@ -285,15 +329,65 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           <label className="block text-xs font-semibold text-gray-700 mb-1">Municipality</label>
           <select
             value={filters.municipality || ''}
-            disabled={!filters.province}
-            onChange={(e) => handleInputChange('municipality', e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100"
+            disabled={isLocationLocked || !filters.province}
+            onChange={(e) => handleMunicipalityChange(e.target.value)}
+            className={`w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filters.province ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <option value="">Select Municipality</option>
             {filteredMunicipalities.map((m) => (
               <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>
             ))}
           </select>
+        </div>
+
+        {/* Barangay (multi-select) */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-semibold text-gray-700">
+              Barangay
+              <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                {filters.barangays.length} selected
+              </span>
+            </label>
+            {/* All / Clear only shown to users who can change location */}
+            {!isLocationLocked && filteredBarangays.length > 0 && (
+              <div className="flex gap-2 text-[10px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => onFilterChange({ ...filters, barangays: filteredBarangays.map((b) => b.brgyCode) })}
+                  className="text-blue-600 hover:text-blue-800 transition"
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFilterChange({ ...filters, barangays: [] })}
+                  className="text-gray-400 hover:text-gray-700 transition"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filters.municipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+            {filteredBarangays.length === 0 ? (
+              <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+            ) : (
+              filteredBarangays.map((b) => (
+                <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                  <input
+                    type="checkbox"
+                    value={b.brgyCode}
+                    checked={filters.barangays.includes(b.brgyCode)}
+                    disabled={isLocationLocked}
+                    onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
+                    className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                  />
+                  <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+                </label>
+              ))
+            )}
+          </div>
         </div>
 
         {/* RHU Name */}
@@ -311,7 +405,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
 
       <div className="mt-3 flex gap-2 justify-end">
         <button
-          onClick={() => onFilterChange({ year: '', month: '', region: '', province: '', municipality: '', rhuName: '' })}
+          onClick={onClearFilter}
           className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 transition"
         >
           Clear
@@ -497,7 +591,8 @@ const SectionB = ({ data }: { data?: ReportData }) => {
   const rows: [string, string][] = [
     ['1. Hypertension cases identified', String(ncd?.hypertension ?? '')],
     ['2. Diabetes cases identified',     String(ncd?.diabetes     ?? '')],
-    ['3. Other NCD cases identified',    ''],
+    ['3. Current smokers identified',    String(ncd?.smokers      ?? '')],
+    ['4. Other NCD cases identified',    ''],
   ];
 
   return (
@@ -738,9 +833,26 @@ export default function A1AllPrograms({
   regions = [],
   provinces = [],
   municipalities = [],
+  barangays = [],
+  onApplyFilter,
 }: A1AllProgramsProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Only Administrators and DOH users may change location filters;
+  // all other roles see their assigned location as read-only.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+
+  // Location defaults come from the logged-in user's assigned location.
+  const defaultLocation = {
+    region: user?.region_code ?? '',
+    province: user?.province_code ?? '',
+    municipality: user?.municipality_code ?? '',
+    barangays: parseArray(user?.barangay_codes),
+  };
+
   const [activeSection, setActiveSection] = useState<string>('all');
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>({ ...defaultLocation });
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -759,7 +871,13 @@ export default function A1AllPrograms({
     setFilters(newFilters);
   };
 
+  // Locked users always fall back to their assigned location rather than a blank one.
+  const handleClearFilter = () => {
+    setFilters({ ...defaultLocation });
+  };
+
   const handleApplyFilter = async () => {
+    onApplyFilter?.(filters.month ?? '', filters.year ?? '');
     setIsLoading(true);
     setError(null);
 
@@ -771,6 +889,8 @@ export default function A1AllPrograms({
       if (filters.region) queryParams.append('region', filters.region);
       if (filters.province) queryParams.append('province', filters.province);
       if (filters.municipality) queryParams.append('municipality', filters.municipality);
+      // Send every selected barangay code as barangay[]
+      filters.barangays.forEach((code) => queryParams.append('barangay[]', code));
       if (filters.rhuName) queryParams.append('rhu_name', filters.rhuName);
 
       const response = await fetch(`/qfhsis/public/api/reports/filtered-m1-all?${queryParams.toString()}`);
@@ -810,10 +930,13 @@ export default function A1AllPrograms({
         filters={filters}
         onFilterChange={handleFilterChange}
         onApplyFilter={handleApplyFilter}
+        onClearFilter={handleClearFilter}
         isLoading={isLoading}
         regions={regions}
         provinces={provinces}
         municipalities={municipalities}
+        barangays={barangays}
+        isLocationLocked={isLocationLocked}
       />
 
       {/* Error message */}
