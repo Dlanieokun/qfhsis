@@ -1,4 +1,15 @@
 import React, { useState, useMemo } from 'react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
 
 // ─── Location Data Shapes ────────────────────────────────────────────────────
 interface Region { regCode: string; regDesc: string; }
@@ -1549,15 +1560,33 @@ export default function M1AllPrograms({
   oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
   regions = [], provinces = [], municipalities = [], barangays = []
 }: M1AllProgramsProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Administrators and DOH can change all location filters freely.
+  // Public Health Nurses can change barangay but not region/province/municipality.
+  // All other roles have every location field locked.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
+
   const [activeSection, setActiveSection] = useState<string>('all');
 
-  // Form State Values
-  const [selectedMonth, setSelectedMonth] = useState('');
+  // Static Month Array — defined early so useState initialisers can reference it
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  // Form State — month & year default to current; location pre-filled from logged-in user
+  const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-  const [selectedRegion, setSelectedRegion] = useState('');
-  const [selectedProvince, setSelectedProvince] = useState('');
-  const [selectedMunicipality, setSelectedMunicipality] = useState('');
-  const [selectedBarangay, setSelectedBarangay] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState(user?.region_code ?? '');
+  const [selectedProvince, setSelectedProvince] = useState(user?.province_code ?? '');
+  const [selectedMunicipality, setSelectedMunicipality] = useState(user?.municipality_code ?? '');
+  // Barangay is multi-select — user may be assigned several codes
+  const [selectedBarangays, setSelectedBarangays] = useState<string[]>(
+    parseArray(user?.barangay_codes)
+  );
 
   // ─── Live Family Planning Report Data (fetched from PhoReportController@familyPlaning) ───
   const [familyPlanningData, setFamilyPlanningData] = useState<FamilyPlanningData | undefined>(familyPlanning);
@@ -1607,12 +1636,6 @@ export default function M1AllPrograms({
     return barangays.filter(b => b.citymunCode === selectedMunicipality);
   }, [selectedMunicipality, barangays]);
 
-  // Static Month Array Mapping
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-
   // ─── Filter -> API Query Builder (shared: month/year/region/province/municipality/barangay) ───
   const buildReportQuery = () => {
     const params = new URLSearchParams();
@@ -1626,7 +1649,8 @@ export default function M1AllPrograms({
     if (selectedRegion) params.set('region', selectedRegion);
     if (selectedProvince) params.set('province', selectedProvince);
     if (selectedMunicipality) params.set('municipality', selectedMunicipality);
-    if (selectedBarangay) params.set('barangay', selectedBarangay);
+    // Send every selected barangay code as barangay[]
+    selectedBarangays.forEach(code => params.append('barangay[]', code));
 
     return params.toString();
   };
@@ -1812,14 +1836,15 @@ export default function M1AllPrograms({
       {/* Col 2: Region & Province Nodes */}
       <div className="space-y-2">
         <label className="block font-semibold text-gray-700">Region</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedRegion}
+          disabled={isLocationLocked}
           onChange={(e) => {
             setSelectedRegion(e.target.value);
             setSelectedProvince('');
             setSelectedMunicipality('');
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Region</option>
@@ -1827,14 +1852,14 @@ export default function M1AllPrograms({
         </select>
 
         <label className="block font-semibold text-gray-700 mt-2">Province</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked || !selectedRegion ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedProvince}
-          disabled={!selectedRegion}
+          disabled={isLocationLocked || !selectedRegion}
           onChange={(e) => {
             setSelectedProvince(e.target.value);
             setSelectedMunicipality('');
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Province</option>
@@ -1845,29 +1870,73 @@ export default function M1AllPrograms({
       {/* Col 3: Municipality & Barangay Leaf Nodes */}
       <div className="space-y-2">
         <label className="block font-semibold text-gray-700">Municipality / City</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
+        <select
+          className={`w-full border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-blue-500 ${isLocationLocked || !selectedProvince ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
           value={selectedMunicipality}
-          disabled={!selectedProvince}
+          disabled={isLocationLocked || !selectedProvince}
           onChange={(e) => {
             setSelectedMunicipality(e.target.value);
-            setSelectedBarangay('');
+            setSelectedBarangays([]);
           }}
         >
           <option value="">Select Municipality</option>
           {filteredMunicipalities.map(m => <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>)}
         </select>
 
-        <label className="block font-semibold text-gray-700 mt-2">Barangay</label>
-        <select 
-          className="w-full border border-gray-300 rounded px-2 py-1.5 bg-white outline-none focus:border-blue-500"
-          value={selectedBarangay}
-          disabled={!selectedMunicipality}
-          onChange={(e) => setSelectedBarangay(e.target.value)}
-        >
-          <option value="">Select Barangay</option>
-          {filteredBarangays.map(b => <option key={b.brgyCode} value={b.brgyCode}>{b.brgyDesc}</option>)}
-        </select>
+        <div className="flex items-center justify-between mt-2">
+          <label className="block font-semibold text-gray-700">
+            Barangay
+            <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+              {selectedBarangays.length} selected
+            </span>
+          </label>
+          {/* All / Clear only shown to users who can change location */}
+          {!isBarangayLocked && filteredBarangays.length > 0 && (
+            <div className="flex gap-2 text-[10px] font-medium">
+              <button
+                type="button"
+                onClick={() => setSelectedBarangays(filteredBarangays.map(b => b.brgyCode))}
+                className="text-blue-600 hover:text-blue-800 transition"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBarangays([])}
+                className="text-gray-400 hover:text-gray-700 transition"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+        <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!selectedMunicipality || isBarangayLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+          {filteredBarangays.length === 0 ? (
+            <p className="text-[11px] text-gray-400 italic px-2 py-1">
+              {selectedMunicipality ? 'No barangays found.' : 'Select a municipality first…'}
+            </p>
+          ) : (
+            filteredBarangays.map(b => (
+              <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isBarangayLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  value={b.brgyCode}
+                  checked={selectedBarangays.includes(b.brgyCode)}
+                  disabled={isBarangayLocked}
+                  onChange={(e) => {
+                    setSelectedBarangays(prev =>
+                      e.target.checked
+                        ? [...prev, b.brgyCode]
+                        : prev.filter(c => c !== b.brgyCode)
+                    );
+                  }}
+                  className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                />
+                <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+              </label>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Col 4: Apply Filters -> PhoReportController@familyPlaning */}
@@ -1890,8 +1959,10 @@ export default function M1AllPrograms({
           (familyPlanningData || maternalCareData || childCareData || oralHealthData || nonCommunicableDiseaseData || environmentalHealthData || infectiousDiseaseData) && (
           <span className="text-gray-500 text-xs">
             Showing data for {selectedMonth || months[new Date().getMonth()]} {selectedYear}
-            {selectedBarangay && filteredBarangays.find(b => b.brgyCode === selectedBarangay)
-              ? ` · ${filteredBarangays.find(b => b.brgyCode === selectedBarangay)?.brgyDesc}`
+            {selectedBarangays.length > 0
+              ? ` · ${selectedBarangays.length === 1
+                  ? filteredBarangays.find(b => b.brgyCode === selectedBarangays[0])?.brgyDesc ?? selectedBarangays[0]
+                  : `${selectedBarangays.length} barangays`}`
               : selectedMunicipality && filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)
                 ? ` · ${filteredMunicipalities.find(m => m.citymunCode === selectedMunicipality)?.citymunDesc}`
                 : ''}

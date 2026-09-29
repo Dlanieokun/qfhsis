@@ -496,14 +496,17 @@ export default function PhoPage({
                                 regions={regions}
                                 provinces={provinces}
                                 municipalities={municipalities}
+                                barangays={barangays}
                                 onApplyFilter={handleFormFilterApplied}
                             />
                         }
                         {activeTab === 'mo' && 
                             <MorbidityPage
-                                // regions={regions}
-                                // provinces={provinces}
-                                // municipalities={municipalities}
+                                regions={regions}
+                                provinces={provinces}
+                                municipalities={municipalities}
+                                barangays={barangays}
+                                onApplyFilter={handleFormFilterApplied}
                             />
                         }
                     </motion.div>

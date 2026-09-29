@@ -39,7 +39,10 @@ class M28PAAController extends Controller
             'region' => 'nullable|string',
             'province' => 'nullable|string',
             'municipality' => 'nullable|string',
-            'barangay' => 'nullable|string',
+            // Barangay is a multi-select on the frontend, sent as barangay[]=A&barangay[]=B,
+            // which Laravel parses into an array — accept an array of codes, not a single string.
+            'barangay' => 'nullable|array',
+            'barangay.*' => 'string',
         ]);
 
         $year = (int) $validated['year'];
@@ -432,6 +435,10 @@ class M28PAAController extends Controller
      */
     private function resolveLocationDescriptions(array $validated): array
     {
+        // Barangay is multi-select on the frontend (an array of codes); every
+        // other location filter is still a single code.
+        $barangayCodes = array_filter((array) ($validated['barangay'] ?? []));
+
         return [
             'region' => ! empty($validated['region'])
                 ? optional(DB::table('regions')->where('regCode', $validated['region'])->first())->regDesc
@@ -442,9 +449,10 @@ class M28PAAController extends Controller
             'municipality' => ! empty($validated['municipality'])
                 ? optional(DB::table('municipalities')->where('citymunCode', $validated['municipality'])->first())->citymunDesc
                 : null,
-            'barangay' => ! empty($validated['barangay'])
-                ? optional(DB::table('barangays')->where('brgyCode', $validated['barangay'])->first())->brgyDesc
-                : null,
+            // A list of resolved barangay descriptions (possibly more than one).
+            'barangay' => ! empty($barangayCodes)
+                ? DB::table('barangays')->whereIn('brgyCode', $barangayCodes)->pluck('brgyDesc')->all()
+                : [],
         ];
     }
 
@@ -455,16 +463,19 @@ class M28PAAController extends Controller
      */
     private function applyProfileLocationFilter($query, string $column, array $desc): void
     {
-        if (! $desc['region'] && ! $desc['province'] && ! $desc['municipality'] && ! $desc['barangay']) {
+        $hasBarangay = ! empty($desc['barangay']);
+
+        if (! $desc['region'] && ! $desc['province'] && ! $desc['municipality'] && ! $hasBarangay) {
             return;
         }
 
-        $query->whereIn($column, function ($sub) use ($desc) {
+        $query->whereIn($column, function ($sub) use ($desc, $hasBarangay) {
             $sub->select('id')->from('household_profiles');
             if ($desc['region']) $sub->where('region', $desc['region']);
             if ($desc['province']) $sub->where('province', $desc['province']);
             if ($desc['municipality']) $sub->where('municipality', $desc['municipality']);
-            if ($desc['barangay']) $sub->where('barangay', $desc['barangay']);
+            // Multiple barangays may be selected — match any of them.
+            if ($hasBarangay) $sub->whereIn('barangay', $desc['barangay']);
         });
     }
 

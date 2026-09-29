@@ -587,7 +587,7 @@ const SectionC = ({ data }: { data?: any }) => (
         {/* C1 Mortality / C2 Natality header row */}
         <tr className="bg-gray-100">
           <Th className="text-left w-5/12">C1. Mortality — Indicators</Th>
-          <Th>&lt;10</Th>
+          <Th>10-14</Th>
           <Th>15-19</Th>
           <Th>20-49</Th>
           <Th>TOTAL</Th>
@@ -798,9 +798,11 @@ export default function M28PAA({
   const { auth } = usePage<SharedData>().props;
   const user = auth?.user as any;
 
-  // Only Administrators and DOH users may change location filters;
-  // all other roles see their assigned location as read-only.
+  // Administrators and DOH can change all location filters freely.
+  // Public Health Nurses can change barangay but not region/province/municipality.
+  // All other roles have every location field locked.
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
 
   // Location defaults come from the logged-in user's assigned location.
   const defaultLocation = {
@@ -813,7 +815,7 @@ export default function M28PAA({
   const [activeSection, setActiveSection] = useState<string>('all');
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(true);
   const [filterState, setFilterState] = useState<FilterState>({
-    month: '',
+    month: months[new Date().getMonth()],
     year: new Date().getFullYear().toString(),
     ...defaultLocation,
   });
@@ -837,7 +839,7 @@ export default function M28PAA({
   const handleClearFilters = () => {
     // Locked users always fall back to their assigned location rather than a blank one.
     const cleared: FilterState = {
-      month: '',
+      month: months[new Date().getMonth()],
       year: new Date().getFullYear().toString(),
       ...defaultLocation,
     };
@@ -1056,7 +1058,7 @@ export default function M28PAA({
                 </span>
               </label>
               {/* All / Clear only shown to users who can change location */}
-              {!isLocationLocked && filteredBarangays.length > 0 && (
+              {!isBarangayLocked && filteredBarangays.length > 0 && (
                 <div className="flex gap-2 text-[10px] font-medium">
                   <button
                     type="button"
@@ -1075,17 +1077,17 @@ export default function M28PAA({
                 </div>
               )}
             </div>
-            <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filterState.municipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+            <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filterState.municipality || isBarangayLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
               {filteredBarangays.length === 0 ? (
                 <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
               ) : (
                 filteredBarangays.map((b) => (
-                  <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                  <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isBarangayLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
                     <input
                       type="checkbox"
                       value={b.brgyCode}
                       checked={filterState.barangays.includes(b.brgyCode)}
-                      disabled={isLocationLocked}
+                      disabled={isBarangayLocked}
                       onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
                       className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
                     />

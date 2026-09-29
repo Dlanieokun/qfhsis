@@ -1,7 +1,41 @@
-import { Fragment } from 'react';
-import { Head } from '@inertiajs/react';
+import { Fragment, useMemo, useState } from 'react';
+import { Head, usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
 // Adjust this import to match your project's layout, e.g.:
 // import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+
+// Parse JSON-encoded or plain arrays stored on the user model
+const parseArray = (val: unknown): string[] => {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+};
+
+/* ------------------------------------------------------------------ */
+/*  Location & Period Filter Types (mirrors M28PAA.tsx)                */
+/* ------------------------------------------------------------------ */
+
+interface Region { regCode: string; regDesc: string; }
+interface Province { provCode: string; provDesc: string; regCode: string; }
+interface Municipality { citymunCode: string; citymunDesc: string; provCode: string; }
+interface Barangay { brgyCode: string; brgyDesc: string; citymunCode: string; }
+
+interface FilterState {
+  month: string;
+  year: string;
+  region: string;
+  province: string;
+  municipality: string;
+  // Barangay is multi-select — a user may be assigned several barangay codes
+  barangays: string[];
+}
+
+const months = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -70,10 +104,16 @@ export function morbidityRowKey(icd: string, name: string): string {
 }
 
 interface MorbidityPageProps {
+  /** Initial/server-rendered data, used until the filter panel fetches its own. */
   data?: MorbidityReportData;
   facilityName?: string;
   /** e.g. "January 2026" */
   reportingPeriod?: string;
+  regions?: Region[];
+  provinces?: Province[];
+  municipalities?: Municipality[];
+  barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -562,31 +602,524 @@ function ValueCell({ value, strong = false }: { value: number; strong?: boolean 
 }
 
 /* ------------------------------------------------------------------ */
+/*  Location & Period Filter Controls (mirrors M28PAA.tsx)             */
+/* ------------------------------------------------------------------ */
+
+const FilterControls = ({
+  filterState,
+  isFilterOpen,
+  setIsFilterOpen,
+  onClearFilters,
+  onApplyFilters,
+  isLoading = false,
+  error = null,
+}: {
+  filterState: FilterState;
+  isFilterOpen: boolean;
+  setIsFilterOpen: (open: boolean) => void;
+  onClearFilters: () => void;
+  onApplyFilters: () => void;
+  isLoading?: boolean;
+  error?: string | null;
+}) => {
+  return (
+    <div className="mb-4 space-y-2">
+      {/* Filter Button Row */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={() => setIsFilterOpen(!isFilterOpen)}
+          className={`px-3 py-2 rounded text-sm font-medium border transition flex items-center gap-2 ${
+            isFilterOpen
+              ? 'bg-blue-100 text-blue-700 border-blue-400'
+              : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+          {isFilterOpen ? 'Hide Filters' : 'Show Filters'}
+        </button>
+
+        {/* Clear Filters Button */}
+        <button
+          onClick={onClearFilters}
+          disabled={isLoading}
+          className="px-3 py-2 rounded text-sm font-medium bg-red-50 text-red-700 border border-red-300 hover:bg-red-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Clear Filters
+        </button>
+
+        {/* Apply Filters Button */}
+        <button
+          onClick={onApplyFilters}
+          disabled={isLoading}
+          className="px-3 py-2 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {isLoading && (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          )}
+          {isLoading ? 'Applying...' : 'Apply Filters'}
+        </button>
+      </div>
+
+      {/* Fetch Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
+          {error}
+        </div>
+      )}
+
+      {/* Active Filters Display */}
+      {(filterState.month || filterState.year || filterState.region ||
+        filterState.province || filterState.municipality || filterState.barangays.length > 0) && (
+        <div className="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-xs">
+          <p className="font-semibold text-blue-900 mb-1">Active Filters:</p>
+          <div className="flex flex-wrap gap-2">
+            {filterState.month && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Month: {filterState.month}
+              </span>
+            )}
+            {filterState.year && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Year: {filterState.year}
+              </span>
+            )}
+            {filterState.region && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Region: {filterState.region}
+              </span>
+            )}
+            {filterState.province && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Province: {filterState.province}
+              </span>
+            )}
+            {filterState.municipality && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Municipality: {filterState.municipality}
+              </span>
+            )}
+            {filterState.barangays.length > 0 && (
+              <span className="inline-flex items-center gap-1 bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                Barangay{filterState.barangays.length > 1 ? 's' : ''}: {filterState.barangays.length} selected
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                                */
 /* ------------------------------------------------------------------ */
 
 export default function MorbidityPage({
-  data = {},
+  data,
   facilityName,
   reportingPeriod,
+  regions = [],
+  provinces = [],
+  municipalities = [],
+  barangays = [],
+  onApplyFilter,
 }: MorbidityPageProps) {
+  const { auth } = usePage<SharedData>().props;
+  const user = auth?.user as any;
+
+  // Administrators and DOH can change all location filters freely.
+  // Public Health Nurses can change barangay but not region/province/municipality.
+  // All other roles have every location field locked.
+  const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
+
+  // Location defaults come from the logged-in user's assigned location.
+  const defaultLocation = {
+    region: user?.region_code ?? '',
+    province: user?.province_code ?? '',
+    municipality: user?.municipality_code ?? '',
+    barangays: parseArray(user?.barangay_codes),
+  };
+
+  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(true);
+  // 'compact' shows one Total column per age bracket (16 cols); 'detailed' expands
+  // each bracket into Male/Female/Total (48 cols), matching the raw DOH form.
+  const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('compact');
+  const [search, setSearch] = useState('');
+  const [filterState, setFilterState] = useState<FilterState>({
+    month: months[new Date().getMonth()],
+    year: new Date().getFullYear().toString(),
+    ...defaultLocation,
+  });
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(filterState);
+  const [reportData, setReportData] = useState<MorbidityReportData | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Calls GET /api/reports/m2-morbidity with the current filter selections as query params.
+  const fetchReportData = async (filters: FilterState) => {
+    if (!filters.year) {
+      setFetchError('Please select a year before applying filters.');
+      return;
+    }
+
+    setIsLoading(true);
+    setFetchError(null);
+
+    try {
+      const params = new URLSearchParams();
+      params.set('year', filters.year);
+
+      // Backend's reportMonth column stores the month name (e.g. "August"), matching
+      // the Android entity's reportMonth field, so send it through as-is.
+      if (filters.month) {
+        params.set('month', filters.month);
+      }
+      if (filters.region) params.set('region', filters.region);
+      if (filters.province) params.set('province', filters.province);
+      if (filters.municipality) params.set('municipality', filters.municipality);
+      // Send every selected barangay code as barangay[]
+      filters.barangays.forEach((code) => params.append('barangay[]', code));
+
+      const response = await fetch(`/qfhsis/public/api/reports/m2-morbidity?${params.toString()}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message = body?.message || `Request failed with status ${response.status}`;
+        throw new Error(message);
+      }
+
+      const json = await response.json();
+      setReportData(json.data ?? {});
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Failed to fetch report data.');
+      setReportData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleApplyFilters = () => {
+    const monthIndex = months.indexOf(filterState.month);
+    const monthCode = monthIndex !== -1 ? String(monthIndex + 1).padStart(2, '0') : '';
+    onApplyFilter?.(monthCode, filterState.year || String(new Date().getFullYear()));
+    setAppliedFilters(filterState);
+    fetchReportData(filterState);
+  };
+
+  const handleClearFilters = () => {
+    // Locked users always fall back to their assigned location rather than a blank one.
+    const cleared: FilterState = {
+      month: months[new Date().getMonth()],
+      year: new Date().getFullYear().toString(),
+      ...defaultLocation,
+    };
+    setFilterState(cleared);
+    setAppliedFilters(cleared);
+    setReportData(null);
+    setFetchError(null);
+  };
+
+  const handleFilterChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
+    setFilterState((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleRegionChange = (value: string) => {
+    setFilterState((prev) => ({ ...prev, region: value, province: '', municipality: '', barangays: [] }));
+  };
+
+  const handleProvinceChange = (value: string) => {
+    setFilterState((prev) => ({ ...prev, province: value, municipality: '', barangays: [] }));
+  };
+
+  const handleMunicipalityChange = (value: string) => {
+    setFilterState((prev) => ({ ...prev, municipality: value, barangays: [] }));
+  };
+
+  const toggleBarangay = (code: string, checked: boolean) => {
+    setFilterState((prev) => ({
+      ...prev,
+      barangays: checked ? [...prev.barangays, code] : prev.barangays.filter((c) => c !== code),
+    }));
+  };
+
+  const filteredProvinces = useMemo(
+    () => provinces.filter((p) => p.regCode === filterState.region),
+    [filterState.region, provinces],
+  );
+  const filteredMunicipalities = useMemo(
+    () => municipalities.filter((m) => m.provCode === filterState.province),
+    [filterState.province, municipalities],
+  );
+  const filteredBarangays = useMemo(
+    () => barangays.filter((b) => b.citymunCode === filterState.municipality),
+    [filterState.municipality, barangays],
+  );
+
+  // Prefer freshly fetched data; fall back to server-rendered initial data.
+  const tableData = reportData ?? data ?? {};
+  const effectiveReportingPeriod =
+    reportingPeriod ?? `${appliedFilters.month} ${appliedFilters.year}`.trim();
+
+  // Disease search narrows every section down to matching rows; empty sections drop out.
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleSections = useMemo(() => {
+    if (!normalizedSearch) return MORBIDITY_SECTIONS;
+    return MORBIDITY_SECTIONS
+      .map((section) => ({
+        ...section,
+        diseases: section.diseases.filter(
+          (d) =>
+            d.name.toLowerCase().includes(normalizedSearch) ||
+            d.icd.toLowerCase().includes(normalizedSearch)
+        ),
+      }))
+      .filter((section) => section.diseases.length > 0);
+  }, [normalizedSearch]);
+
+  const matchCount = visibleSections.reduce((sum, s) => sum + s.diseases.length, 0);
+  const isDetailed = viewMode === 'detailed';
+  const headerRows = isDetailed ? 2 : 1;
+  const ageColSpan = isDetailed ? 3 : 1;
+  const totalColSpan = 2 + AGE_GROUPS.length * ageColSpan + ageColSpan;
+
+  const sectionSlug = (title: string) =>
+    `morbidity-section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
+
+  const jumpToSection = (title: string) => {
+    const el = document.getElementById(sectionSlug(title));
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <>
       <Head title="Section A.1. Morbidity Report" />
 
       <div className="p-4 sm:p-6">
-        <div className="mb-4">
-          <h1 className="text-lg font-bold text-gray-900">
-            Section A.1. Morbidity Report
-          </h1>
-          {(facilityName || reportingPeriod) && (
-            <p className="text-sm text-gray-600">
-              {facilityName}
-              {facilityName && reportingPeriod ? ' — ' : ''}
-              {reportingPeriod}
-            </p>
+        <div className="mb-4 flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">
+              Section A.1. Morbidity Report
+            </h1>
+            {(facilityName || effectiveReportingPeriod) && (
+              <p className="text-sm text-gray-600">
+                {facilityName}
+                {facilityName && effectiveReportingPeriod ? ' — ' : ''}
+                {effectiveReportingPeriod}
+              </p>
+            )}
+            <p className="mt-1 text-xs text-gray-400">View only. Values sourced from submitted reports.</p>
+          </div>
+          <button
+            onClick={() => window.print()}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
+          >
+            Export / Print
+          </button>
+        </div>
+
+        {/* Filter Controls */}
+        <FilterControls
+          filterState={filterState}
+          isFilterOpen={isFilterOpen}
+          setIsFilterOpen={setIsFilterOpen}
+          onClearFilters={handleClearFilters}
+          onApplyFilters={handleApplyFilters}
+          isLoading={isLoading}
+          error={fetchError}
+        />
+
+        {/* Collapsible Filter Panel */}
+        {isFilterOpen && (
+          <div className="mb-4 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm md:grid-cols-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="w-40 shrink-0 font-medium text-gray-700">FHSIS Report for the Month:</label>
+                <select
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500"
+                  value={filterState.month}
+                  onChange={(e) => handleFilterChange('month', e.target.value)}
+                >
+                  <option value="">Select Month</option>
+                  {months.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-40 shrink-0 font-medium text-gray-700">Year:</label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm text-center outline-none focus:border-blue-500"
+                  value={filterState.year}
+                  onChange={(e) => handleFilterChange('year', e.target.value)}
+                  placeholder="YYYY"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="w-32 shrink-0 font-medium text-gray-700">Region:</label>
+                <select
+                  className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 ${isLocationLocked ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'bg-white'}`}
+                  value={filterState.region}
+                  disabled={isLocationLocked}
+                  onChange={(e) => handleRegionChange(e.target.value)}
+                >
+                  <option value="">Select Region</option>
+                  {regions.map((r) => (
+                    <option key={r.regCode} value={r.regCode}>{r.regDesc}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 shrink-0 font-medium text-gray-700">Province:</label>
+                <select
+                  className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filterState.region ? 'opacity-60 cursor-not-allowed' : 'bg-white'}`}
+                  value={filterState.province}
+                  disabled={isLocationLocked || !filterState.region}
+                  onChange={(e) => handleProvinceChange(e.target.value)}
+                >
+                  <option value="">Select Province</option>
+                  {filteredProvinces.map((p) => (
+                    <option key={p.provCode} value={p.provCode}>{p.provDesc}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="w-32 shrink-0 font-medium text-gray-700">Municipality:</label>
+                <select
+                  className={`w-full rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 ${isLocationLocked || !filterState.province ? 'opacity-60 cursor-not-allowed' : 'bg-white'}`}
+                  value={filterState.municipality}
+                  disabled={isLocationLocked || !filterState.province}
+                  onChange={(e) => handleMunicipalityChange(e.target.value)}
+                >
+                  <option value="">Select Municipality</option>
+                  {filteredMunicipalities.map((m) => (
+                    <option key={m.citymunCode} value={m.citymunCode}>{m.citymunDesc}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <label className="font-medium text-gray-700">
+                  Barangay
+                  <span className="ml-2 text-[10px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                    {filterState.barangays.length} selected
+                  </span>
+                </label>
+                {/* All / Clear only shown to users who can change location */}
+                {!isBarangayLocked && filteredBarangays.length > 0 && (
+                  <div className="flex gap-2 text-[10px] font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setFilterState((prev) => ({ ...prev, barangays: filteredBarangays.map((b) => b.brgyCode) }))}
+                      className="text-blue-600 hover:text-blue-800 transition"
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterState((prev) => ({ ...prev, barangays: [] }))}
+                      className="text-gray-400 hover:text-gray-700 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filterState.municipality || isBarangayLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+                {filteredBarangays.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+                ) : (
+                  filteredBarangays.map((b) => (
+                    <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isBarangayLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                      <input
+                        type="checkbox"
+                        value={b.brgyCode}
+                        checked={filterState.barangays.includes(b.brgyCode)}
+                        disabled={isBarangayLocked}
+                        onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
+                      />
+                      <span className="text-[11px] text-gray-700">{b.brgyDesc}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Report fetch status */}
+        {reportData && !isLoading && (
+          <div className="mb-4 bg-green-50 border border-green-200 rounded px-3 py-2 text-xs text-green-800">
+            Report data loaded for {appliedFilters.month || 'Year-to-date'} {appliedFilters.year} — values populated into the table below.
+          </div>
+        )}
+
+        {/* Table toolbar: search, density toggle, section jump */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[220px] max-w-sm">
+            <svg
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.35-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search disease or ICD code…"
+              className="w-full rounded border border-gray-300 pl-8 pr-2 py-1.5 text-sm outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex rounded border border-gray-300 overflow-hidden text-xs font-medium">
+            <button
+              onClick={() => setViewMode('compact')}
+              className={`px-3 py-1.5 transition ${!isDetailed ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              title="One Total column per age bracket"
+            >
+              Compact
+            </button>
+            <button
+              onClick={() => setViewMode('detailed')}
+              className={`px-3 py-1.5 transition border-l border-gray-300 ${isDetailed ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              title="Male / Female / Total per age bracket"
+            >
+              Detailed
+            </button>
+          </div>
+
+          <select
+            onChange={(e) => e.target.value && jumpToSection(e.target.value)}
+            defaultValue=""
+            className="rounded border border-gray-300 px-2 py-1.5 text-xs text-gray-600 outline-none focus:border-blue-500 max-w-[220px]"
+          >
+            <option value="" disabled>Jump to chapter…</option>
+            {visibleSections.map((s) => (
+              <option key={s.title} value={s.title}>{s.title} ({s.icdRange})</option>
+            ))}
+          </select>
+
+          {normalizedSearch && (
+            <span className="text-xs text-gray-500">
+              {matchCount} disease{matchCount === 1 ? '' : 's'} match{matchCount === 1 ? 'es' : ''}
+            </span>
           )}
-          <p className="mt-1 text-xs text-gray-400">View only. Values sourced from submitted reports.</p>
         </div>
 
         <div className="overflow-x-auto border border-gray-300 rounded-md">
@@ -594,58 +1127,67 @@ export default function MorbidityPage({
             <thead>
               <tr>
                 <th
-                  rowSpan={2}
-                  className="sticky left-0 z-20 bg-gray-100 border border-gray-300 px-2 py-1 text-left text-xs font-semibold text-gray-700 min-w-[260px]"
+                  rowSpan={headerRows}
+                  className="sticky left-0 z-20 bg-gray-100 border border-gray-300 px-2 py-1.5 text-left text-xs font-semibold text-gray-700 min-w-[260px] align-bottom"
                 >
                   Disease/s
                 </th>
                 <th
-                  rowSpan={2}
-                  className="sticky left-[260px] z-20 bg-gray-100 border border-gray-300 px-2 py-1 text-left text-xs font-semibold text-gray-700 min-w-[110px]"
+                  rowSpan={headerRows}
+                  className="sticky left-[260px] z-20 bg-gray-100 border border-gray-300 px-2 py-1.5 text-left text-xs font-semibold text-gray-700 min-w-[110px] align-bottom"
                 >
                   ICD-Code/s
                 </th>
                 {AGE_GROUPS.map((group) => (
                   <th
                     key={group.key}
-                    colSpan={3}
-                    className="bg-gray-100 border border-gray-300 px-2 py-1 text-center text-xs font-semibold text-gray-700 whitespace-nowrap"
+                    colSpan={ageColSpan}
+                    className={`bg-gray-100 border border-gray-300 px-1.5 py-1.5 text-center text-[11px] font-semibold text-gray-700 leading-tight whitespace-normal ${isDetailed ? 'min-w-[168px]' : 'min-w-[88px]'}`}
                   >
                     {group.label}
                   </th>
                 ))}
                 <th
-                  colSpan={3}
-                  className="bg-gray-200 border border-gray-300 px-2 py-1 text-center text-xs font-semibold text-gray-700 whitespace-nowrap"
+                  colSpan={ageColSpan}
+                  className={`bg-gray-200 border border-gray-300 px-1.5 py-1.5 text-center text-[11px] font-semibold text-gray-700 leading-tight whitespace-normal ${isDetailed ? 'min-w-[168px]' : 'min-w-[88px]'}`}
                 >
                   Grand Total
                 </th>
               </tr>
-              <tr>
-                {AGE_GROUPS.map((group) => (
-                  <Fragment key={group.key}>
-                    <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">
-                      M
-                    </th>
-                    <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">
-                      F
-                    </th>
-                    <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">
-                      T
-                    </th>
-                  </Fragment>
-                ))}
-                <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">M</th>
-                <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">F</th>
-                <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600">Both</th>
-              </tr>
+              {isDetailed && (
+                <tr>
+                  {AGE_GROUPS.map((group) => (
+                    <Fragment key={group.key}>
+                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
+                        Male
+                      </th>
+                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
+                        Female
+                      </th>
+                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
+                        Total
+                      </th>
+                    </Fragment>
+                  ))}
+                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Male</th>
+                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Female</th>
+                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Both</th>
+                </tr>
+              )}
             </thead>
             <tbody>
-              {MORBIDITY_SECTIONS.map((section) => (
+              {visibleSections.length === 0 && (
+                <tr>
+                  <td colSpan={totalColSpan} className="border border-gray-300 px-4 py-6 text-center text-sm text-gray-400">
+                    No diseases match “{search}”.
+                  </td>
+                </tr>
+              )}
+              {visibleSections.map((section) => (
                 <Fragment key={section.title}>
-                  <tr className="bg-gray-200">
+                  <tr id={sectionSlug(section.title)} className="bg-gray-200 scroll-mt-24">
                     <td
-                      colSpan={2 + AGE_GROUPS.length * 3 + 3}
+                      colSpan={totalColSpan}
                       className="sticky left-0 border border-gray-300 px-2 py-1 text-xs font-bold text-gray-800"
                     >
                       {section.title}{' '}
@@ -654,7 +1196,7 @@ export default function MorbidityPage({
                   </tr>
                   {section.diseases.map((disease) => {
                     const rowKey = morbidityRowKey(disease.icd, disease.name);
-                    const grandTotal = getGrandTotal(data, rowKey);
+                    const grandTotal = getGrandTotal(tableData, rowKey);
                     return (
                       <tr key={rowKey} className="odd:bg-white even:bg-gray-50 hover:bg-blue-50">
                         <td className="sticky left-0 z-10 bg-inherit border border-gray-300 px-2 py-1 text-sm text-gray-800 min-w-[260px]">
@@ -664,18 +1206,26 @@ export default function MorbidityPage({
                           {disease.icd}
                         </td>
                         {AGE_GROUPS.map((group) => {
-                          const count = getCount(data, rowKey, group.key);
-                          return (
+                          const count = getCount(tableData, rowKey, group.key);
+                          return isDetailed ? (
                             <Fragment key={`${rowKey}-${group.key}`}>
                               <ValueCell value={count.male} />
                               <ValueCell value={count.female} />
                               <ValueCell value={count.male + count.female} />
                             </Fragment>
+                          ) : (
+                            <ValueCell key={`${rowKey}-${group.key}`} value={count.male + count.female} />
                           );
                         })}
-                        <ValueCell value={grandTotal.male} strong />
-                        <ValueCell value={grandTotal.female} strong />
-                        <ValueCell value={grandTotal.male + grandTotal.female} strong />
+                        {isDetailed ? (
+                          <>
+                            <ValueCell value={grandTotal.male} strong />
+                            <ValueCell value={grandTotal.female} strong />
+                            <ValueCell value={grandTotal.male + grandTotal.female} strong />
+                          </>
+                        ) : (
+                          <ValueCell value={grandTotal.male + grandTotal.female} strong />
+                        )}
                       </tr>
                     );
                   })}

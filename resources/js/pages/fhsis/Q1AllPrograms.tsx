@@ -1584,9 +1584,11 @@ export default function Q1AllPrograms({
   const { auth } = usePage<SharedData>().props;
   const user = auth?.user as any;
 
-  // Only Administrators and DOH users may change location filters;
-  // all other roles see their assigned location as read-only.
+  // Administrators and DOH can change all location filters freely.
+  // Public Health Nurses can change barangay but not region/province/municipality.
+  // All other roles have every location field locked.
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
 
   const [activeSection, setActiveSection] = useState<string>('all');
 
@@ -1918,7 +1920,7 @@ export default function Q1AllPrograms({
             </span>
           </label>
           {/* All / Clear only shown to users who can change location */}
-          {!isLocationLocked && filteredBarangays.length > 0 && (
+          {!isBarangayLocked && filteredBarangays.length > 0 && (
             <div className="flex gap-2 text-[10px] font-medium">
               <button
                 type="button"
@@ -1937,17 +1939,17 @@ export default function Q1AllPrograms({
             </div>
           )}
         </div>
-        <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!selectedMunicipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+        <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!selectedMunicipality || isBarangayLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
           {filteredBarangays.length === 0 ? (
             <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
           ) : (
             filteredBarangays.map(b => (
-              <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+              <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isBarangayLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   value={b.brgyCode}
                   checked={selectedBarangays.includes(b.brgyCode)}
-                  disabled={isLocationLocked}
+                  disabled={isBarangayLocked}
                   onChange={(e) => {
                     setSelectedBarangays(prev =>
                       e.target.checked

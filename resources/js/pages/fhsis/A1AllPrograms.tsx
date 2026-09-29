@@ -185,6 +185,7 @@ interface FilterPanelProps {
   municipalities?: Municipality[];
   barangays?: Barangay[];
   isLocationLocked?: boolean;
+  isBarangayLocked?: boolean;
 }
 
 const FilterPanel: React.FC<FilterPanelProps> = ({
@@ -198,6 +199,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   municipalities = [],
   barangays = [],
   isLocationLocked = false,
+  isBarangayLocked = false,
 }) => {
   const handleInputChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
     onFilterChange({
@@ -260,11 +262,11 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
         <div>
           <label className="block text-xs font-semibold text-gray-700 mb-1">Year</label>
           <input
-            type="number"
+            type="text"
             value={filters.year || ''}
             onChange={(e) => handleInputChange('year', e.target.value)}
             placeholder="YYYY"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500 text-center"
           />
         </div>
 
@@ -276,7 +278,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
             onChange={(e) => handleInputChange('month', e.target.value)}
             className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-500"
           >
-            <option value="">All</option>
+            <option value="">Select Month</option>
             <option value="01">January</option>
             <option value="02">February</option>
             <option value="03">March</option>
@@ -350,7 +352,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               </span>
             </label>
             {/* All / Clear only shown to users who can change location */}
-            {!isLocationLocked && filteredBarangays.length > 0 && (
+            {!isBarangayLocked && filteredBarangays.length > 0 && (
               <div className="flex gap-2 text-[10px] font-medium">
                 <button
                   type="button"
@@ -369,17 +371,19 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               </div>
             )}
           </div>
-          <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filters.municipality || isLocationLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
+          <div className={`w-full border border-gray-300 rounded max-h-28 overflow-y-auto space-y-0.5 p-1 transition ${!filters.municipality || isBarangayLocked ? 'opacity-60 pointer-events-none bg-gray-50' : 'bg-white'}`}>
             {filteredBarangays.length === 0 ? (
-              <p className="text-[11px] text-gray-400 italic px-2 py-1">Select a municipality first…</p>
+              <p className="text-[11px] text-gray-400 italic px-2 py-1">
+                {filters.municipality ? 'No barangays found.' : 'Select a municipality first…'}
+              </p>
             ) : (
               filteredBarangays.map((b) => (
-                <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isLocationLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
+                <label key={b.brgyCode} className={`flex items-center gap-2 px-2 py-1 rounded select-none ${isBarangayLocked ? 'cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     value={b.brgyCode}
                     checked={filters.barangays.includes(b.brgyCode)}
-                    disabled={isLocationLocked}
+                    disabled={isBarangayLocked}
                     onChange={(e) => toggleBarangay(b.brgyCode, e.target.checked)}
                     className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:cursor-not-allowed"
                   />
@@ -839,9 +843,11 @@ export default function A1AllPrograms({
   const { auth } = usePage<SharedData>().props;
   const user = auth?.user as any;
 
-  // Only Administrators and DOH users may change location filters;
-  // all other roles see their assigned location as read-only.
+  // Administrators and DOH can change all location filters freely.
+  // Public Health Nurses can change barangay but not region/province/municipality.
+  // All other roles have every location field locked.
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
 
   // Location defaults come from the logged-in user's assigned location.
   const defaultLocation = {
@@ -851,8 +857,14 @@ export default function A1AllPrograms({
     barangays: parseArray(user?.barangay_codes),
   };
 
+  // Month & year default to the current period, same as M1.
+  const defaultPeriod = {
+    month: String(new Date().getMonth() + 1).padStart(2, '0'),
+    year: String(new Date().getFullYear()),
+  };
+
   const [activeSection, setActiveSection] = useState<string>('all');
-  const [filters, setFilters] = useState<FilterState>({ ...defaultLocation });
+  const [filters, setFilters] = useState<FilterState>({ ...defaultPeriod, ...defaultLocation });
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -873,7 +885,7 @@ export default function A1AllPrograms({
 
   // Locked users always fall back to their assigned location rather than a blank one.
   const handleClearFilter = () => {
-    setFilters({ ...defaultLocation });
+    setFilters({ ...defaultPeriod, ...defaultLocation });
   };
 
   const handleApplyFilter = async () => {
@@ -937,6 +949,7 @@ export default function A1AllPrograms({
         municipalities={municipalities}
         barangays={barangays}
         isLocationLocked={isLocationLocked}
+        isBarangayLocked={isBarangayLocked}
       />
 
       {/* Error message */}

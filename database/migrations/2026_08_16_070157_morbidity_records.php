@@ -10,11 +10,21 @@ return new class extends Migration
     {
         Schema::create('morbidity_records', function (Blueprint $table) {
             $table->id();
-            $table->string('report_month', 20)->nullable();
+            $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
+
+            // Reporting period — split to match the Android entity's reportMonth/reportYear
+            // fields exactly, instead of the single 'report_month' string this table had.
+            $table->string('reportMonth', 20)->nullable();
+            $table->string('reportYear', 4)->nullable();
+
             $table->string('region')->nullable();
             $table->string('province')->nullable();
             $table->string('municipality')->nullable();
             $table->string('barangay')->nullable();
+
+            // Disease name was missing entirely — without it, two diseases that share an
+            // ICD code (e.g. A09.0's two rows on the DOH form) can't be told apart.
+            $table->string('diseaseName')->nullable();
             $table->string('icdCode')->nullable();
 
             $table->integer('age0to6daysMale')->default(0);
@@ -49,6 +59,12 @@ return new class extends Migration
             $table->integer('age55to59yrsFemale')->default(0);
             $table->integer('age60plusMale')->default(0);
             $table->integer('age60plusFemale')->default(0);
+
+            // isSynced is a device-local flag on the Android entity (whether this row has
+            // reached the server); a row that exists here is by definition already synced,
+            // so it's intentionally not duplicated on the server table.
+
+            $table->timestamps();
         });
     }
 

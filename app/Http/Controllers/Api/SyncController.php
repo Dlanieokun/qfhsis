@@ -901,6 +901,7 @@ class SyncController extends Controller
                 'syncTimestamp'      => 'sync_timestamp',
             ],
             'morbidity_records' => [
+                'userId'       => 'user_id',
                 'householdId'  => 'household_id',
                 'diseaseName'  => 'disease_name',
                 'reportYear'   => 'report_year',

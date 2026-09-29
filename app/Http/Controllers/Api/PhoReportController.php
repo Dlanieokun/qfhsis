@@ -1435,6 +1435,7 @@ class PhoReportController extends Controller
         $period          = $this->resolveReportPeriod($request);
         $startOfSelected = $period['start'];
         $endOfSelected   = $period['end'];
+        $location        = $this->resolveLocationFilters($request);
 
         $sexEmpty = ['male' => 0, 'female' => 0, 'total' => 0];
         $bump = function (array &$bucket, string $key, ?string $sex) use ($sexEmpty) {
@@ -1831,6 +1832,26 @@ class PhoReportController extends Controller
     private function resolveReportPeriod(Request $request): array
     {
         $year = (int) $request->input('year', now()->year);
+
+        if ($request->boolean('annual')) {
+            $start = Carbon::create($year, 1, 1)->startOfYear();
+            $end   = Carbon::create($year, 12, 31)->endOfYear();
+
+            $previousStart = Carbon::create($year - 1, 1, 1)->startOfYear();
+            $previousEnd   = Carbon::create($year - 1, 12, 31)->endOfYear();
+
+            return [
+                'start'         => $start,
+                'end'           => $end,
+                'previousStart' => $previousStart,
+                'previousEnd'   => $previousEnd,
+                'year'          => $year,
+                'periodMeta'    => [
+                    'label' => 'Annual',
+                    'year'  => $year,
+                ],
+            ];
+        }
 
         if ($request->filled('quarter')) {
             $quarter = (int) $request->input('quarter');
