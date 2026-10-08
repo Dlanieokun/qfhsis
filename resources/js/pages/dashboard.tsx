@@ -168,6 +168,11 @@ const CATEGORIES: Category[] = [
     },
 ];
 
+// Category ids each role can see. Roles not listed here see every category.
+const ROLE_CATEGORIES: Record<string, string[]> = {
+    BHW: ['household'],
+};
+
 const TOTAL_MODULES = CATEGORIES.reduce((sum, c) => sum + c.modules.length, 0);
 
 /**
@@ -201,7 +206,14 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
         { label: 'FHSIS Dashboard' },
     ];
 
-    const [activeCategory, setActiveCategory] = useState('maternal_child');
+    const allowedCategoryIds = ROLE_CATEGORIES[String(auth.user.role ?? '').toUpperCase()];
+    const visibleCategories = allowedCategoryIds
+        ? CATEGORIES.filter((c) => allowedCategoryIds.includes(c.id))
+        : CATEGORIES;
+
+    const [activeCategory, setActiveCategory] = useState(
+        visibleCategories.find((c) => c.id === 'maternal_child')?.id ?? visibleCategories[0].id,
+    );
 
     const { data, setData, post, processing, errors, reset } = useForm({
         reporting_year: new Date().getFullYear().toString(),
@@ -224,7 +236,7 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
         });
     };
 
-    const current = CATEGORIES.find((c) => c.id === activeCategory) ?? CATEGORIES[0];
+    const current = visibleCategories.find((c) => c.id === activeCategory) ?? visibleCategories[0];
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -271,7 +283,7 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                         <div className="flex flex-col lg:flex-row gap-6">
                             {/* Sidebar directory */}
                             <div className="flex lg:flex-col gap-3 overflow-x-auto lg:w-72 shrink-0 pb-2">
-                                {CATEGORIES.map((cat) => {
+                                {visibleCategories.map((cat) => {
                                     const isActive = cat.id === activeCategory;
                                     const Icon = cat.icon;
                                     return (

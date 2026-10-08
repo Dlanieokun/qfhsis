@@ -257,6 +257,109 @@ function SubmitReportModal({
     );
 }
 
+// ─── Decline Report Modal ─────────────────────────────────────────────────────
+// Shown only to reviewer roles (Public Health Nurse, Administrator, DOH) so they
+// can mark a reporting period as declined instead of / before it being submitted.
+interface DeclineReportModalProps {
+    isOpen: boolean;
+    month: string;
+    year: string;
+    isDeclining: boolean;
+    error: string | null;
+    onMonthChange: (value: string) => void;
+    onYearChange: (value: string) => void;
+    onCancel: () => void;
+    onConfirm: () => void;
+}
+
+function DeclineReportModal({
+    isOpen,
+    month,
+    year,
+    isDeclining,
+    error,
+    onMonthChange,
+    onYearChange,
+    onCancel,
+    onConfirm,
+}: DeclineReportModalProps) {
+    if (!isOpen) return null;
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="decline-report-title"
+            onClick={onCancel}
+        >
+            <div
+                className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <h3 id="decline-report-title" className="text-lg font-bold text-gray-800">
+                    Decline Report
+                </h3>
+                <p className="mt-1 text-xs text-gray-500">
+                    Select the reporting month and year you want to decline.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                    <div>
+                        <label className="mb-1 block text-xs font-semibold text-gray-700">Month</label>
+                        <select
+                            value={month}
+                            onChange={(e) => onMonthChange(e.target.value)}
+                            className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500"
+                        >
+                            <option value="">Select Month</option>
+                            {SUBMIT_MONTHS.map((m) => (
+                                <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="mb-1 block text-xs font-semibold text-gray-700">Year</label>
+                        <input
+                            type="number"
+                            value={year}
+                            onChange={(e) => onYearChange(e.target.value)}
+                            placeholder="YYYY"
+                            className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500"
+                        />
+                    </div>
+
+                    {error && (
+                        <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {error}
+                        </div>
+                    )}
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        disabled={isDeclining}
+                        className="rounded border border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100 disabled:opacity-60"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        disabled={isDeclining || !month || !year}
+                        className="rounded bg-red-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+                    >
+                        {isDeclining ? 'Declining...' : 'Decline'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function PhoPage({
     regions = [], provinces = [], municipalities = [], barangays = []
 }: PhoPageProps) {
@@ -283,6 +386,14 @@ export default function PhoPage({
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     const [submitReportError, setSubmitReportError] = useState<string | null>(null);
 
+    // ─── Decline Report modal state ──────────────────────────────────────────
+    // Only reviewer roles (Public Health Nurse, Administrator, DOH) can decline
+    // a report; Midwife only ever sees the Submit button.
+    const canDeclineReport = ['Public Health Nurse', 'Administrator', 'DOH'].includes(user?.role ?? '');
+    const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
+    const [isDecliningReport, setIsDecliningReport] = useState(false);
+    const [declineReportError, setDeclineReportError] = useState<string | null>(null);
+
     // Called by whichever form is active when its own "Apply Filter(s)"
     // button is clicked — reveals the Submit button and pre-fills the
     // modal's month/year with whatever period the user just filtered by.
@@ -306,6 +417,17 @@ export default function PhoPage({
         if (isSubmittingReport) return;
         setIsSubmitModalOpen(false);
         setSubmitReportError(null);
+    };
+
+    const openDeclineModal = () => {
+        setDeclineReportError(null);
+        setIsDeclineModalOpen(true);
+    };
+
+    const closeDeclineModal = () => {
+        if (isDecliningReport) return;
+        setIsDeclineModalOpen(false);
+        setDeclineReportError(null);
     };
 
     // Checks submit_program_report for a row matching this user + form +
@@ -387,6 +509,48 @@ export default function PhoPage({
         }
     };
 
+    const handleDeclineReport = async () => {
+        if (!submitMonth || !submitYear) {
+            setDeclineReportError('Please select both month and year.');
+            return;
+        }
+
+        setIsDecliningReport(true);
+        setDeclineReportError(null);
+
+        try {
+            const response = await axios.post(
+                '/qfhsis/public/api/reports/submit-program-report',
+                {
+                    // Persisted into the submit_program_report table with a
+                    // rejected status rather than the default 'submitted'.
+                    form: activeTab,
+                    month: submitMonth,
+                    year: submitYear,
+                    status: 'rejected',
+                    region_code: user?.region_code ?? '',
+                    province_code: user?.province_code ?? '',
+                    municipality_code: user?.municipality_code ?? '',
+                    barangay_codes: parseArray(user?.barangay_codes),
+                },
+            );
+
+            if (response.status < 200 || response.status >= 300) {
+                throw new Error(response.data?.message || `Request failed with status ${response.status}`);
+            }
+
+            setIsDeclineModalOpen(false);
+            setHasExistingSubmission(true);
+        } catch (err: any) {
+            const message =
+                err?.response?.data?.message ??
+                (err instanceof Error ? err.message : 'Failed to decline report.');
+            setDeclineReportError(message);
+        } finally {
+            setIsDecliningReport(false);
+        }
+    };
+
     const tabs = [
         { id: 'm1', label: 'M1_All Programs' },
         { id: 'q1', label: 'Q1_All Programs' },
@@ -399,7 +563,7 @@ export default function PhoPage({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="PHO Reports" />
 
-            <div className="max-w-7xl mx-auto px-6 pt-6 flex justify-end">
+            <div className="max-w-7xl mx-auto px-6 pt-6 flex justify-end gap-2">
                 {isFilterApplied && (
                     checkingExistingSubmission ? (
                         <span className="text-sm text-gray-400 italic">Checking submission status…</span>
@@ -408,13 +572,24 @@ export default function PhoPage({
                             Already Submitted
                         </span>
                     ) : (
-                        <button
-                            type="button"
-                            onClick={openSubmitModal}
-                            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-emerald-700"
-                        >
-                            Submit Report
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={openSubmitModal}
+                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-emerald-700"
+                            >
+                                Submit Report
+                            </button>
+                            {canDeclineReport && (
+                                <button
+                                    type="button"
+                                    onClick={openDeclineModal}
+                                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-red-700"
+                                >
+                                    Decline Report
+                                </button>
+                            )}
+                        </>
                     )
                 )}
             </div>
@@ -526,6 +701,20 @@ export default function PhoPage({
                 onCancel={closeSubmitModal}
                 onSubmit={handleSubmitReport}
             />
+
+            {canDeclineReport && (
+                <DeclineReportModal
+                    isOpen={isDeclineModalOpen}
+                    month={submitMonth}
+                    year={submitYear}
+                    isDeclining={isDecliningReport}
+                    error={declineReportError}
+                    onMonthChange={setSubmitMonth}
+                    onYearChange={setSubmitYear}
+                    onCancel={closeDeclineModal}
+                    onConfirm={handleDeclineReport}
+                />
+            )}
         </AppLayout>
     );
 }

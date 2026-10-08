@@ -27,7 +27,9 @@ return new class extends Migration
 
             // CPAB
             $table->boolean('td2Mother')->default(false);
+            $table->string('td2MotherDate')->nullable()->after('td2Mother');
             $table->boolean('td3To5Mother')->default(false);
+            $table->string('td3To5MotherDate')->nullable()->after('td3To5Mother');
 
             // BCG
             $table->string('bcgWithin24hAge')->nullable();

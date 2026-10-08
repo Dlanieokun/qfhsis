@@ -1,5 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
-import { LoaderCircle, Lock, Mail, Stethoscope } from 'lucide-react';
+import { LoaderCircle, Lock, Mail, Stethoscope, UserPlus } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
 import InputError from '@/components/input-error';
@@ -180,6 +180,26 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                             ) : null}
                             Sign In
                         </Button>
+
+                        {/* Divider */}
+                        <div className="relative py-1">
+                            <div className="absolute inset-0 flex items-center">
+                                <span className="w-full border-t border-slate-200" />
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                                <span className="bg-white px-3 font-medium text-slate-400">or</span>
+                            </div>
+                        </div>
+
+                        {/* Create new account */}
+                        <TextLink
+                            href={route('register')}
+                            tabIndex={5}
+                            className="flex h-12 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-base font-semibold text-slate-700 no-underline transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-600 hover:bg-blue-50 hover:text-blue-700 hover:shadow-md active:translate-y-0 active:scale-[0.98]"
+                        >
+                            <UserPlus className="h-5 w-5" />
+                            Create new account
+                        </TextLink>
 
                     </form>
                 </div>

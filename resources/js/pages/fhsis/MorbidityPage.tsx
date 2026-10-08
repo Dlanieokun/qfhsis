@@ -118,7 +118,7 @@ interface MorbidityPageProps {
 
 /* ------------------------------------------------------------------ */
 /*  Static form structure (from M2_Morbidity.xlsx, DOH FHSIS           */
-/*  Section A.1. Morbidity Report — 20 ICD-10 chapters, 306 rows)      */
+/*  Section A.1. Morbidity Report — 19 ICD-10 chapters, 306 rows)      */
 /* ------------------------------------------------------------------ */
 
 export interface MorbidityDisease {
@@ -509,12 +509,6 @@ export const MORBIDITY_SECTIONS: MorbiditySection[] = [
       { name: 'Other congenital malformations and deformities of the musculoskeletal system', icd: 'Q67–Q79' },
       { name: 'Other congenital malformations', icd: 'Q10–Q18, Q30–Q34, Q80–Q89' },
       { name: 'Chromosomal abnormalities, not elsewhere classified', icd: 'Q90–Q99' },
-    ],
-  },
-  {
-    title: 'Symptoms, Signs and Abnormal Clinical and Laboratory Findings, Not Elsewhere Classified',
-    icdRange: 'R00-R99',
-    diseases: [
       { name: 'Abdominal and pelvic pain', icd: 'R10' },
       { name: 'Fever of unknown origin', icd: 'R50' },
       { name: 'Senility', icd: 'R54' },
@@ -588,12 +582,28 @@ function getGrandTotal(data: MorbidityReportData, rowKey: string) {
   );
 }
 
+/** Header cell shared by every age-bracket column — dark blue, white bold text, label rotated so all 53 columns fit. */
+const HEAD_CELL =
+  'h-36 border border-gray-400 bg-[#073763] px-0 py-1 text-center align-bottom text-[10px] font-bold leading-tight text-white';
+
+/** Rotated (bottom-to-top) header label. */
+function HeadLabel({ children }: { children: string }) {
+  return (
+    <span
+      className="inline-block whitespace-nowrap"
+      style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** View-only numeric cell — blank instead of "0" to keep this dense table readable. */
 function ValueCell({ value, strong = false }: { value: number; strong?: boolean }) {
   return (
     <td
-      className={`border border-gray-300 px-2 py-1 text-right text-sm tabular-nums ${
-        strong ? 'font-semibold bg-gray-50' : ''
+      className={`overflow-hidden border border-gray-400 px-0 py-0.5 text-center text-[10px] tabular-nums ${
+        strong ? 'font-semibold' : ''
       }`}
     >
       {value > 0 ? value.toLocaleString() : ''}
@@ -747,9 +757,6 @@ export default function MorbidityPage({
   };
 
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(true);
-  // 'compact' shows one Total column per age bracket (16 cols); 'detailed' expands
-  // each bracket into Male/Female/Total (48 cols), matching the raw DOH form.
-  const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('compact');
   const [search, setSearch] = useState('');
   const [filterState, setFilterState] = useState<FilterState>({
     month: months[new Date().getMonth()],
@@ -806,6 +813,19 @@ export default function MorbidityPage({
       setIsLoading(false);
     }
   };
+
+  // Download link for the filled-in M2_Morbidity.xlsx — same filters as the on-screen report,
+  // generated server-side from the official template (see MorbidityReportController::export).
+  const exportUrl = (() => {
+    const params = new URLSearchParams();
+    params.set('year', appliedFilters.year || String(new Date().getFullYear()));
+    if (appliedFilters.month) params.set('month', appliedFilters.month);
+    if (appliedFilters.region) params.set('region', appliedFilters.region);
+    if (appliedFilters.province) params.set('province', appliedFilters.province);
+    if (appliedFilters.municipality) params.set('municipality', appliedFilters.municipality);
+    appliedFilters.barangays.forEach((code) => params.append('barangay[]', code));
+    return `/qfhsis/public/fhsis/reports/export-m2-morbidity?${params.toString()}`;
+  })();
 
   const handleApplyFilters = () => {
     const monthIndex = months.indexOf(filterState.month);
@@ -869,6 +889,23 @@ export default function MorbidityPage({
   const effectiveReportingPeriod =
     reportingPeriod ?? `${appliedFilters.month} ${appliedFilters.year}`.trim();
 
+  // Form-header values (rows 2-7 of M2_Morbidity.xlsx). Filters hold codes; show descriptions.
+  const provinceDesc = provinces.find((p) => p.provCode === appliedFilters.province)?.provDesc ?? '';
+  const municipalityDesc =
+    municipalities.find((m) => m.citymunCode === appliedFilters.municipality)?.citymunDesc ?? '';
+  const barangayDesc = barangays
+    .filter((b) => appliedFilters.barangays.includes(b.brgyCode))
+    .map((b) => b.brgyDesc)
+    .join(', ');
+  const formHeaderRows: [string, string][] = [
+    ['FHSIS Report for MONTH , YEAR:', effectiveReportingPeriod],
+    ['Name of Health Facility:', facilityName ?? ''],
+    ['Name of Barangay:', barangayDesc],
+    ['Name of City/Municipality:', municipalityDesc],
+    ['Name of Province:', provinceDesc],
+    ['Projected Population of the Year:', ''],
+  ];
+
   // Disease search narrows every section down to matching rows; empty sections drop out.
   const normalizedSearch = search.trim().toLowerCase();
   const visibleSections = useMemo(() => {
@@ -886,10 +923,9 @@ export default function MorbidityPage({
   }, [normalizedSearch]);
 
   const matchCount = visibleSections.reduce((sum, s) => sum + s.diseases.length, 0);
-  const isDetailed = viewMode === 'detailed';
-  const headerRows = isDetailed ? 2 : 1;
-  const ageColSpan = isDetailed ? 3 : 1;
-  const totalColSpan = 2 + AGE_GROUPS.length * ageColSpan + ageColSpan;
+  // Same columns as M2_Morbidity.xlsx: Disease/s, ICD-Code/s, then Male/Female/Total for each of
+  // the 16 age brackets, then Grand Total Male / Female / Both Sexes (53 columns, A..BA).
+  const totalColSpan = 2 + AGE_GROUPS.length * 3 + 3;
 
   const sectionSlug = (title: string) =>
     `morbidity-section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
@@ -918,12 +954,20 @@ export default function MorbidityPage({
             )}
             <p className="mt-1 text-xs text-gray-400">View only. Values sourced from submitted reports.</p>
           </div>
-          <button
-            onClick={() => window.print()}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
-          >
-            Export / Print
-          </button>
+          <div className="flex gap-2">
+            <a
+              href={exportUrl}
+              className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 transition text-sm inline-flex items-center"
+            >
+              Download M2_Morbidity.xlsx
+            </a>
+            <button
+              onClick={() => window.print()}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm"
+            >
+              Export / Print
+            </button>
+          </div>
         </div>
 
         {/* Filter Controls */}
@@ -1087,23 +1131,6 @@ export default function MorbidityPage({
             />
           </div>
 
-          <div className="flex rounded border border-gray-300 overflow-hidden text-xs font-medium">
-            <button
-              onClick={() => setViewMode('compact')}
-              className={`px-3 py-1.5 transition ${!isDetailed ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-              title="One Total column per age bracket"
-            >
-              Compact
-            </button>
-            <button
-              onClick={() => setViewMode('detailed')}
-              className={`px-3 py-1.5 transition border-l border-gray-300 ${isDetailed ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-              title="Male / Female / Total per age bracket"
-            >
-              Detailed
-            </button>
-          </div>
-
           <select
             onChange={(e) => e.target.value && jumpToSection(e.target.value)}
             defaultValue=""
@@ -1122,110 +1149,97 @@ export default function MorbidityPage({
           )}
         </div>
 
-        <div className="overflow-x-auto border border-gray-300 rounded-md">
-          <table className="min-w-full border-collapse">
+        {/* Form header — same layout as rows 2-8 of M2_Morbidity.xlsx */}
+        <div className="relative mb-3 border border-gray-400 bg-white px-4 py-3 text-sm text-gray-900">
+          <span className="absolute right-4 top-2 text-4xl font-bold">M2</span>
+          <div className="mx-auto grid max-w-3xl grid-cols-[max-content_1fr] items-end gap-x-3 gap-y-1">
+            {formHeaderRows.map(([label, value]) => (
+              <Fragment key={label}>
+                <div className="text-right font-bold">{label}</div>
+                <div className="min-h-[1.5rem] border-b border-gray-900 font-medium">{value}</div>
+              </Fragment>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-[10px]">For submission to the next administrative level</p>
+        </div>
+
+        <div className="border border-gray-400">
+          <table className="w-full table-fixed border-collapse">
+            <colgroup>
+              <col style={{ width: 200 }} />
+              <col style={{ width: 84 }} />
+              {Array.from({ length: AGE_GROUPS.length * 3 + 3 }).map((_, i) => (
+                <col key={i} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th
-                  rowSpan={headerRows}
-                  className="sticky left-0 z-20 bg-gray-100 border border-gray-300 px-2 py-1.5 text-left text-xs font-semibold text-gray-700 min-w-[260px] align-bottom"
+                  colSpan={totalColSpan}
+                  className="border border-gray-400 bg-[#073763] px-2 py-1.5 text-center text-sm font-bold text-white"
                 >
-                  Disease/s
-                </th>
-                <th
-                  rowSpan={headerRows}
-                  className="sticky left-[260px] z-20 bg-gray-100 border border-gray-300 px-2 py-1.5 text-left text-xs font-semibold text-gray-700 min-w-[110px] align-bottom"
-                >
-                  ICD-Code/s
-                </th>
-                {AGE_GROUPS.map((group) => (
-                  <th
-                    key={group.key}
-                    colSpan={ageColSpan}
-                    className={`bg-gray-100 border border-gray-300 px-1.5 py-1.5 text-center text-[11px] font-semibold text-gray-700 leading-tight whitespace-normal ${isDetailed ? 'min-w-[168px]' : 'min-w-[88px]'}`}
-                  >
-                    {group.label}
-                  </th>
-                ))}
-                <th
-                  colSpan={ageColSpan}
-                  className={`bg-gray-200 border border-gray-300 px-1.5 py-1.5 text-center text-[11px] font-semibold text-gray-700 leading-tight whitespace-normal ${isDetailed ? 'min-w-[168px]' : 'min-w-[88px]'}`}
-                >
-                  Grand Total
+                  Section A.1. Morbidity Report
                 </th>
               </tr>
-              {isDetailed && (
-                <tr>
-                  {AGE_GROUPS.map((group) => (
-                    <Fragment key={group.key}>
-                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
-                        Male
-                      </th>
-                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
-                        Female
-                      </th>
-                      <th className="bg-gray-50 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">
-                        Total
-                      </th>
-                    </Fragment>
-                  ))}
-                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Male</th>
-                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Female</th>
-                  <th className="bg-gray-100 border border-gray-300 px-1 py-1 text-center text-[11px] font-medium text-gray-600 min-w-[56px]">Both</th>
-                </tr>
-              )}
+              <tr>
+                <th className={`${HEAD_CELL} px-1 text-[11px]`}>Disease/s</th>
+                <th className={`${HEAD_CELL} px-1 text-[11px]`}>ICD-Code/s</th>
+                {AGE_GROUPS.map((group) => (
+                  <Fragment key={group.key}>
+                    <th className={HEAD_CELL}><HeadLabel>{`${group.label} Male`}</HeadLabel></th>
+                    <th className={HEAD_CELL}><HeadLabel>{`${group.label} Female`}</HeadLabel></th>
+                    <th className={HEAD_CELL}><HeadLabel>Total</HeadLabel></th>
+                  </Fragment>
+                ))}
+                <th className={HEAD_CELL}><HeadLabel>Grand Total Male</HeadLabel></th>
+                <th className={HEAD_CELL}><HeadLabel>Grand Total Female</HeadLabel></th>
+                <th className={HEAD_CELL}><HeadLabel>Grand Total Both Sexes</HeadLabel></th>
+              </tr>
             </thead>
             <tbody>
               {visibleSections.length === 0 && (
                 <tr>
-                  <td colSpan={totalColSpan} className="border border-gray-300 px-4 py-6 text-center text-sm text-gray-400">
+                  <td colSpan={totalColSpan} className="border border-gray-400 px-4 py-6 text-center text-sm text-gray-400">
                     No diseases match “{search}”.
                   </td>
                 </tr>
               )}
               {visibleSections.map((section) => (
                 <Fragment key={section.title}>
-                  <tr id={sectionSlug(section.title)} className="bg-gray-200 scroll-mt-24">
-                    <td
-                      colSpan={totalColSpan}
-                      className="sticky left-0 border border-gray-300 px-2 py-1 text-xs font-bold text-gray-800"
-                    >
-                      {section.title}{' '}
-                      <span className="font-normal text-gray-500">({section.icdRange})</span>
+                  {/* Chapter row: grey band across the whole row, bold title + ICD range */}
+                  <tr id={sectionSlug(section.title)} className="scroll-mt-24">
+                    <td className="border border-gray-400 bg-[#d9d9d9] px-1 py-0.5 text-[10px] font-bold text-gray-900">
+                      {section.title}
                     </td>
+                    <td className="break-words border border-gray-400 bg-[#d9d9d9] px-1 py-0.5 text-[10px] font-bold text-gray-900">
+                      {section.icdRange}
+                    </td>
+                    <td colSpan={totalColSpan - 2} className="border border-gray-400 bg-[#d9d9d9]" />
                   </tr>
                   {section.diseases.map((disease) => {
                     const rowKey = morbidityRowKey(disease.icd, disease.name);
                     const grandTotal = getGrandTotal(tableData, rowKey);
                     return (
-                      <tr key={rowKey} className="odd:bg-white even:bg-gray-50 hover:bg-blue-50">
-                        <td className="sticky left-0 z-10 bg-inherit border border-gray-300 px-2 py-1 text-sm text-gray-800 min-w-[260px]">
+                      <tr key={rowKey}>
+                        <td className="break-words border border-gray-400 bg-[#f3f3f3] px-1 py-0.5 text-[10px] text-gray-900">
                           {disease.name}
                         </td>
-                        <td className="sticky left-[260px] z-10 bg-inherit border border-gray-300 px-2 py-1 text-xs text-gray-500 min-w-[110px] whitespace-nowrap">
+                        <td className="break-words border border-gray-400 bg-[#f3f3f3] px-1 py-0.5 text-[10px] text-gray-900">
                           {disease.icd}
                         </td>
                         {AGE_GROUPS.map((group) => {
                           const count = getCount(tableData, rowKey, group.key);
-                          return isDetailed ? (
+                          return (
                             <Fragment key={`${rowKey}-${group.key}`}>
                               <ValueCell value={count.male} />
                               <ValueCell value={count.female} />
                               <ValueCell value={count.male + count.female} />
                             </Fragment>
-                          ) : (
-                            <ValueCell key={`${rowKey}-${group.key}`} value={count.male + count.female} />
                           );
                         })}
-                        {isDetailed ? (
-                          <>
-                            <ValueCell value={grandTotal.male} strong />
-                            <ValueCell value={grandTotal.female} strong />
-                            <ValueCell value={grandTotal.male + grandTotal.female} strong />
-                          </>
-                        ) : (
-                          <ValueCell value={grandTotal.male + grandTotal.female} strong />
-                        )}
+                        <ValueCell value={grandTotal.male} strong />
+                        <ValueCell value={grandTotal.female} strong />
+                        <ValueCell value={grandTotal.male + grandTotal.female} strong />
                       </tr>
                     );
                   })}

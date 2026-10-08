@@ -5,6 +5,9 @@ use App\Http\Controllers\PhoController;
 use App\Http\Controllers\PublicNurseController;
 use App\Http\Controllers\SubmitProgramReportController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\AccountApprovalController;
+use App\Http\Controllers\Api\MorbidityReportController;
+use App\Http\Middleware\EnsureAccountIsActive;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 
@@ -13,8 +16,23 @@ Route::get('/', function () {
     return redirect()->route('login');
 })->name('home');
 
+
+    // Location API Definitions
+    Route::get('/api/locations/regions', function () {
+        return DB::table('regions')->orderBy('regDesc')->get();
+    });
+    Route::get('/api/locations/provinces/{regCode}', function ($regCode) {
+        return DB::table('provinces')->where('regCode', $regCode)->orderBy('provDesc')->get();
+    });
+    Route::get('/api/locations/municipalities/{provCode}', function ($provCode) {
+        return DB::table('municipalities')->where('provCode', $provCode)->orderBy('citymunDesc')->get();
+    });
+    Route::get('/api/locations/barangays/{munCode}', function ($munCode) {
+        return DB::table('barangays')->where('citymunCode', $munCode)->orderBy('brgyDesc')->get();
+    });
+
 // FHSIS Secure Core Application Routes
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', EnsureAccountIsActive::class])->group(function () {
     
     // Core Dashboard Workspace View
     // Route::get('/fhsis/dashboard', [FhsisReportController::class, 'index'])->name('fhsis.dashboard');
@@ -45,19 +63,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/reports/export-cervical', [FhsisReportController::class, 'cervicalCancerScreeningDownload'])->name('fhsis.reports.cervicalCancerScreeningDownload');
     Route::get('/fhsis/reports/export-geriatric', [FhsisReportController::class, 'geriatricScreeningDownload'])->name('fhsis.reports.geriatricScreeningDownload');
     
-    // Location API Definitions
-    Route::get('/api/locations/regions', function () {
-        return DB::table('regions')->orderBy('regDesc')->get();
-    });
-    Route::get('/api/locations/provinces/{regCode}', function ($regCode) {
-        return DB::table('provinces')->where('regCode', $regCode)->orderBy('provDesc')->get();
-    });
-    Route::get('/api/locations/municipalities/{provCode}', function ($provCode) {
-        return DB::table('municipalities')->where('provCode', $provCode)->orderBy('citymunDesc')->get();
-    });
-    Route::get('/api/locations/barangays/{munCode}', function ($munCode) {
-        return DB::table('barangays')->where('citymunCode', $munCode)->orderBy('brgyDesc')->get();
-    });
     
     // Fallback default routing context handler
     // Route::get('dashboard', function () {
@@ -74,6 +79,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/fhsis/public-nurse', [PublicNurseController::class, 'publicNurse'])->name('fhsis.publicNurse');
     Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');
     Route::get('/fhsis/reports/export-q1-all', [PublicNurseController::class, 'q1AllDownload'])->name('fhsis.reports.q1AllDownload');
+    Route::get('/fhsis/reports/export-m2-morbidity', [MorbidityReportController::class, 'export'])->name('fhsis.reports.m2MorbidityDownload');
     Route::post('/fhsis/public-nurse/validate', [PublicNurseController::class, 'validateReport'])->name('fhsis.publicNurse.validate');
 
     Route::get('/api/reports/submit-program-report', [SubmitProgramReportController::class, 'index']);
@@ -83,6 +89,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/fhsis/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
         ->name('dashboard');
+
+    Route::get('/fhsis/approvals', [AccountApprovalController::class, 'index'])->name('approvals.index');
+    Route::post('/fhsis/approvals/{user}/approve', [AccountApprovalController::class, 'approve'])->name('approvals.approve');
+    Route::delete('/fhsis/approvals/{user}', [AccountApprovalController::class, 'reject'])->name('approvals.reject');
 });
 
 require __DIR__.'/settings.php';

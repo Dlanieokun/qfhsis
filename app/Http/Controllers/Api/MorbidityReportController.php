@@ -7,6 +7,10 @@ use App\Models\MorbidityRecord;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MorbidityReportController extends Controller
 {
@@ -37,8 +41,10 @@ class MorbidityReportController extends Controller
      * GET /api/reports/m2-morbidity
      *
      * Powers the filter panel in MorbidityPage.tsx. Query params:
-     *   year (required, YYYY), month (optional, 1-12 — omit for the whole year),
+     *   year (required, YYYY), month (optional month NAME, e.g. "August" — omit for the whole year),
      *   region, province, municipality (optional codes), barangay[] (optional codes).
+     * The page sends location CODES, but morbidity_records stores the place DESCRIPTIONS
+     * (what the Android form saves), so codes are translated to descriptions before filtering.
      *
      * Response: { "data": { "<icdCode>::<diseaseName>": { "days_0_6": {"male": 0, "female": 0}, ... }, ... } }
      * The key matches morbidityRowKey(icd, name) in MorbidityPage.tsx exactly, now that
@@ -47,7 +53,99 @@ class MorbidityReportController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        $validated = $this->validateFilters($request);
+
+        return response()->json(['data' => $this->buildReportData($validated, $request)]);
+    }
+
+    /**
+     * GET /fhsis/reports/export-m2-morbidity  (same query params as index())
+     *
+     * Fills the official M2_Morbidity.xlsx template with the filtered report and streams it as a
+     * download — the "Download M2_Morbidity.xlsx" button in MorbidityPage.tsx links here.
+     *
+     * Requires phpoffice/phpspreadsheet and the blank template saved at
+     * storage/app/templates/M2_Morbidity.xlsx (or public/templates/M2_Morbidity.xlsx).
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        $validated = $this->validateFilters($request);
+        $data = $this->buildReportData($validated, $request);
+        $location = $this->resolveLocation($validated);
+
+        $templatePath = null;
+        foreach ([
+            storage_path('app/templates/M2_Morbidity.xlsx'),
+            public_path('templates/M2_Morbidity.xlsx'),
+            resource_path('templates/M2_Morbidity.xlsx'),
+        ] as $candidate) {
+            if (is_file($candidate)) {
+                $templatePath = $candidate;
+                break;
+            }
+        }
+        abort_if($templatePath === null, 500, 'M2_Morbidity.xlsx template not found (expected in storage/app/templates).');
+
+        $spreadsheet = IOFactory::load($templatePath);
+        $sheet = $spreadsheet->getSheetByName('M2_Morbidity') ?? $spreadsheet->getActiveSheet();
+
+        // Form header — these cells hold "______" placeholders in the template.
+        $user = $request->user();
+        $sheet->setCellValue('O2', trim(($validated['month'] ?? '') . ' ' . $validated['year']));
+        $sheet->setCellValue('O3', (string) ($user->facility_name ?? ''));
+        $sheet->setCellValue('O4', implode(', ', $location['barangay']));
+        $sheet->setCellValue('O5', (string) ($location['municipality'] ?? ''));
+        $sheet->setCellValue('O6', (string) ($location['province'] ?? ''));
+        $sheet->setCellValue('O7', '');
+
+        // Data rows start at row 11. A row is matched by its "<ICD>::<Disease>" text — the same key
+        // the report API returns. Columns: C.. = Male/Female/Total per age group (16 x 3 = C..AX),
+        // then AY/AZ/BA = Grand Total Male / Female / Both Sexes.
+        $ageKeys = array_keys(self::AGE_GROUPS);
+        $put = function (int $col, int $row, int $value) use ($sheet): void {
+            if ($value > 0) {
+                $sheet->setCellValue(Coordinate::stringFromColumnIndex($col) . $row, $value);
+            }
+        };
+
+        $lastRow = $sheet->getHighestDataRow();
+        for ($row = 11; $row <= $lastRow; $row++) {
+            $name = trim((string) $sheet->getCell("A{$row}")->getValue());
+            $icd = trim((string) $sheet->getCell("B{$row}")->getValue());
+            $key = "{$icd}::{$name}";
+            if (!isset($data[$key])) {
+                continue;
+            }
+
+            $grandMale = 0;
+            $grandFemale = 0;
+            foreach ($ageKeys as $i => $ageKey) {
+                $male = (int) ($data[$key][$ageKey]['male'] ?? 0);
+                $female = (int) ($data[$key][$ageKey]['female'] ?? 0);
+                $col = 3 + $i * 3;
+                $put($col, $row, $male);
+                $put($col + 1, $row, $female);
+                $put($col + 2, $row, $male + $female);
+                $grandMale += $male;
+                $grandFemale += $female;
+            }
+            $put(51, $row, $grandMale);
+            $put(52, $row, $grandFemale);
+            $put(53, $row, $grandMale + $grandFemale);
+        }
+
+        return response()->streamDownload(
+            function () use ($spreadsheet) {
+                (new Xlsx($spreadsheet))->save('php://output');
+            },
+            'M2_Morbidity.xlsx',
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+        );
+    }
+
+    private function validateFilters(Request $request): array
+    {
+        return $request->validate([
             'year' => ['required', 'digits:4'],
             'month' => ['nullable', 'string'], // month NAME, e.g. "August" — matches reportMonth
             'region' => ['nullable', 'string'],
@@ -56,21 +154,57 @@ class MorbidityReportController extends Controller
             'barangay' => ['nullable', 'array'],
             'barangay.*' => ['string'],
         ]);
+    }
 
+    /**
+     * The filter panel sends reference-table codes (regCode, provCode, citymunCode, brgyCode);
+     * the rows store the descriptions. Look each code up, falling back to the raw value so a
+     * description passed directly still works.
+     *
+     * @return array{region: ?string, province: ?string, municipality: ?string, barangay: string[]}
+     */
+    private function resolveLocation(array $validated): array
+    {
+        $location = ['region' => null, 'province' => null, 'municipality' => null, 'barangay' => []];
+
+        $lookups = [
+            'region'       => ['regions', 'regCode', 'regDesc'],
+            'province'     => ['provinces', 'provCode', 'provDesc'],
+            'municipality' => ['municipalities', 'citymunCode', 'citymunDesc'],
+        ];
+        foreach ($lookups as $field => [$table, $codeCol, $descCol]) {
+            if (!empty($validated[$field])) {
+                $location[$field] = DB::table($table)->where($codeCol, $validated[$field])->value($descCol)
+                    ?? $validated[$field];
+            }
+        }
+
+        if (!empty($validated['barangay'])) {
+            $codes = $validated['barangay'];
+            $descs = DB::table('barangays')->whereIn('brgyCode', $codes)->pluck('brgyDesc')->all();
+            $location['barangay'] = !empty($descs) ? $descs : $codes;
+        }
+
+        return $location;
+    }
+
+    /** @return array<string, array<string, array{male: int, female: int}>> keyed "<icd>::<disease>" */
+    private function buildReportData(array $validated, Request $request): array
+    {
         $query = MorbidityRecord::query()->where('reportYear', $validated['year']);
 
         if (!empty($validated['month'])) {
             $query->where('reportMonth', $validated['month']);
         }
 
+        $location = $this->resolveLocation($validated);
         foreach (['region', 'province', 'municipality'] as $field) {
-            if (!empty($validated[$field])) {
-                $query->where($field, $validated[$field]);
+            if ($location[$field] !== null) {
+                $query->where($field, $location[$field]);
             }
         }
-
-        if (!empty($validated['barangay'])) {
-            $query->whereIn('barangay', $validated['barangay']);
+        if (!empty($location['barangay'])) {
+            $query->whereIn('barangay', $location['barangay']);
         }
 
         // Facility-level users only ever see their own submissions.
@@ -108,7 +242,7 @@ class MorbidityReportController extends Controller
             $data["{$icd}::{$name}"] = $bracket;
         }
 
-        return response()->json(['data' => $data]);
+        return $data;
     }
 
     /**

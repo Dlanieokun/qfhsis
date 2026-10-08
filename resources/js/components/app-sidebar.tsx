@@ -5,6 +5,7 @@ import {
     LayoutDashboard,
     FileText,
     ClipboardList,
+    ClipboardCheck,
     BarChart3,
     Users,
     LogOut,
@@ -22,8 +23,18 @@ const NAV_ITEMS = [
     { label: 'PHO Forms',        href: '/qfhsis/public/fhsis/pho',               icon: FileText },
     // { label: 'Nurse Submittion', href: '/qfhsis/public/fhsis/public-nurse',      icon: ClipboardList },
     { label: 'General Report',   href: '/qfhsis/public/fhsis/reports',           icon: BarChart3 },
+    { label: 'Account Approvals', href: '/qfhsis/public/fhsis/approvals',         icon: ClipboardCheck },
     { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
 ];
+
+// Which nav labels each role can see.
+// Roles not listed here (e.g. admin) still see every item.
+const ROLE_NAV: Record<string, string[]> = {
+    BHW: ['Dashboard', 'General Report'],
+    BHS: ['Dashboard', 'PHO Forms', 'General Report'],
+    DOH: ['Dashboard', 'PHO Forms'],
+    'PUBLIC HEALTH NURSE': ['Dashboard', 'PHO Forms', 'General Report'],
+};
 
 export default function AppSidebar() {
     const { auth, url } = usePage<SharedData & { url: string }>().props;
@@ -78,6 +89,14 @@ export default function AppSidebar() {
     }
 
     const user = auth?.user;
+
+    const allowedLabels = ROLE_NAV[String(user?.role ?? '').toUpperCase()];
+    const isAdmin = String(user?.role ?? '').toUpperCase() === 'ADMINISTRATOR';
+    const visibleNavItems = (allowedLabels
+        ? NAV_ITEMS.filter((item) => allowedLabels.includes(item.label))
+        : NAV_ITEMS
+    ).filter((item) => item.label !== 'Account Approvals' || isAdmin);
+
     const initials = user?.name
         ?.split(' ')
         .slice(0, 2)
@@ -140,7 +159,7 @@ export default function AppSidebar() {
                     animate="show"
                     className="flex-1 px-3 py-2 space-y-0.5"
                 >
-                    {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+                    {visibleNavItems.map(({ label, href, icon: Icon }) => {
                         const active = isActive(href);
                         return (
                             <motion.div key={href} variants={navItemVariant}>

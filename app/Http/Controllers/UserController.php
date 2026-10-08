@@ -30,7 +30,7 @@ class UserController extends Controller
         }
 
         $users = $query->select([
-            'id', 'name', 'email', 'role', 'status', 'assigned_facility', 
+            'id', 'name', 'email', 'contact_number', 'role', 'status', 'assigned_facility', 
             'barangay', 'municipality', 'province', 'region',
             'barangay_codes', 'municipality_code', 'province_code', 'region_code',
             'created_at'
@@ -49,6 +49,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'contact_number' => ['nullable', 'integer'],
             'role' => ['required', Rule::in(['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
@@ -77,6 +78,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'contact_number' => ['nullable', 'integer'],
             'role' => ['required', Rule::in(['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],

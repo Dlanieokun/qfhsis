@@ -872,13 +872,11 @@ class SyncController extends Controller
      * $toDb = true  : camelCase Android field → snake_case DB column (push)
      * $toDb = false : snake_case DB column → camelCase Android field (pull)
      *
-     * NOTE: morbidity_records' current migration only has a handful of the
-     * columns MorbidityRecord actually carries — it has no region/province/
-     * municipality/barangay, no icd_code, and none of the 32 age-group
-     * male/female count columns. Any of those fields coming from Android
-     * are dropped here (rather than left in place to throw a SQL "Unknown
-     * column" error on insert) until the migration is extended to store
-     * them — see the accompanying note about this.
+     * NOTE: morbidity_records' migration mirrors the Android MorbidityRecord
+     * field names (camelCase) for everything except user_id, so only userId is
+     * translated. Android-only fields with no server column (isSynced,
+     * householdId, createdAt, updatedAt) are dropped on push by the
+     * known-column filter below.
      */
     private function translateVitalStatsColumns(string $dbTableName, array $record, bool $toDb): array
     {
@@ -901,16 +899,18 @@ class SyncController extends Controller
                 'syncTimestamp'      => 'sync_timestamp',
             ],
             'morbidity_records' => [
+                // Only user_id is snake_case in the current migration (it's a
+                // foreignId). diseaseName, reportYear, reportMonth, icdCode,
+                // region/province/municipality/barangay and all the age-group
+                // columns are camelCase and match the Android field names
+                // exactly, so they pass straight through with no mapping.
+                // Mapping them to snake_case here made them "unknown columns"
+                // that the filter below silently dropped.
                 'userId'       => 'user_id',
-                'householdId'  => 'household_id',
-                'diseaseName'  => 'disease_name',
-                'reportYear'   => 'report_year',
-                'reportMonth'  => 'report_month',
-                'isSynced'     => 'is_synced',
-                // createdAt/updatedAt intentionally NOT mapped here — the
-                // generic "auto-timestamp fallback" further down always lets
-                // the server set created_at/updated_at itself, same as every
-                // other table that doesn't send its own.
+                // isSynced is device-local and has no server column (it's
+                // dropped by the filter below). createdAt/updatedAt are also
+                // not mapped — the auto-timestamp fallback sets created_at /
+                // updated_at server-side.
             ],
         ];
 
@@ -921,9 +921,9 @@ class SyncController extends Controller
             $translated[$map[$key] ?? $key] = $value;
         }
 
-        // Drop anything that still isn't a real column on morbidity_records
-        // (region, province, municipality, barangay, icdCode, and all
-        // age-group counts) so the insert/update doesn't fail outright.
+        // Drop anything that isn't a real column on morbidity_records
+        // (isSynced, householdId, createdAt, updatedAt, ...) so the
+        // insert/update doesn't fail with an "Unknown column" error.
         if ($toDb && $dbTableName === 'morbidity_records') {
             static $knownColumns = null;
             if ($knownColumns === null) {

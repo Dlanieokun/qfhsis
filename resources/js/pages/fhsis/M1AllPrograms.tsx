@@ -125,6 +125,27 @@ interface InfectiousDiseaseData {
   hivAidsSti: Record<string, SexBrackets>;
 }
 
+// Section H (Vital Statistics) data shape from PhoReportController@vitalStatistics
+interface VitalStatisticsData {
+  mortality: {
+    maternal: {
+      directResident: number;
+      directNonResident: number;
+      directTotal: number;
+      indirectResident: number;
+      indirectNonResident: number;
+      indirectTotal: number;
+      total: number;
+    };
+    infant: { male: number; female: number; total: number };
+  };
+  natality: {
+    liveBirths: number;
+    adolescent: { lt10: number; '10-14': number; '15-19': number };
+    repeatAdolescent: { '10-14': number; '15-19': number };
+  };
+}
+
 interface M1AllProgramsProps {
   familyPlanning?: FamilyPlanningData;
   maternalCare?: MaternalCareData;
@@ -133,11 +154,13 @@ interface M1AllProgramsProps {
   nonCommunicableDisease?: NonCommunicableDiseaseData;
   environmentalHealth?: EnvironmentalHealthData;
   infectiousDisease?: InfectiousDiseaseData;
+  vitalStatistics?: VitalStatisticsData;
   // Cascading Location Dropdown Requirements
   regions?: Region[];
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
+  onApplyFilter?: (month: string, year: string) => void;
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -1510,55 +1533,138 @@ const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDisease
 };
 
 // ─── SECTION H: Vital Statistics ─────────────────────────────────────────────
-const SectionH = () => (
-  <div className="mb-6">
-    <table className="w-full border-collapse text-xs">
-      <tbody>
-        <SectionHeader colSpan={11}>SECTION H. VITAL STATISTICS</SectionHeader>
-        <tr className="bg-gray-100">
-          <Th className="text-left w-5/12">Part I. Mortality — Indicators</Th>
-          <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
-          <Th className="text-left w-5/12">Part II. Natality — Indicators</Th>
-          <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
-        </tr>
-        {([
-          ['1. Maternal Mortality - Total', '1. Live births (Total)'],
-          ['a. Direct', '2. Adolescent Birth'],
-          ['a1. Resident', '2a. <10 years old'],
-          ['a2. Non-Resident', '2b. 10-14 years old'],
-          ['b. Indirect', '2c. 15-19 years old'],
-          ['b1. Resident', '3. Repeat Adolescent Birth'],
-          ['b2. Non-Resident', '3a. 10-14 years old'],
-          ['', '3b. 15-19 years old'],
-        ] as [string, string][]).map(([l, r], i) => (
-          <tr key={i}>
-            <Td className="pl-4 w-5/12">{l}</Td>
-            {l ? <><AgeInputs /><InputCell /></> : <td colSpan={5} className="border border-gray-400"></td>}
-            <Td className="pl-4 w-5/12">{r}</Td>
-            {r ? <><SexInputs /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+const SectionH = ({ vitalStatistics }: { vitalStatistics?: VitalStatisticsData }) => {
+  const m = vitalStatistics?.mortality;
+  const n = vitalStatistics?.natality;
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={11}>SECTION H. VITAL STATISTICS</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Part I. Mortality — Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Part II. Natality — Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
           </tr>
-        ))}
-        <tr className="bg-gray-100">
-          <Th className="text-left" colSpan={6}>2. Infant Mortality (Male | Female | Total)</Th>
-          <Th colSpan={5}>&nbsp;</Th>
-        </tr>
-        <tr>
-          <Td className="pl-4">2. Infant Mortality</Td>
-          <SexInputs />
-          <InputCell />
-          <td className="border border-gray-400"></td>
-          <td colSpan={5} className="border border-gray-400"></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-);
+
+          {/* Row 1: Maternal Mortality Total | Live births Total */}
+          <tr>
+            <Td className="pl-4 font-semibold w-5/12">1. Maternal Mortality - Total</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.total} />
+            <InputCell />
+            <Td className="pl-4 w-5/12">1. Live births (Total)</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.liveBirths} />
+            <InputCell />
+          </tr>
+
+          {/* Row 2: Direct | Adolescent Birth header */}
+          <tr>
+            <Td className="pl-6">a. Direct</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directTotal} />
+            <InputCell />
+            <Td className="pl-4">2. Adolescent Birth</Td>
+            <InputCell /><InputCell /><InputCell /><InputCell />
+          </tr>
+
+          {/* Row 3: Direct Resident | <10 years old */}
+          <tr>
+            <Td className="pl-8">a1. Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directResident} />
+            <InputCell />
+            <Td className="pl-6">2a. &lt;10 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent.lt10} />
+            <InputCell />
+          </tr>
+
+          {/* Row 4: Direct Non-Resident | 10-14 years old */}
+          <tr>
+            <Td className="pl-8">a2. Non-Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directNonResident} />
+            <InputCell />
+            <Td className="pl-6">2b. 10-14 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent['10-14']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 5: Indirect | 15-19 years old */}
+          <tr>
+            <Td className="pl-6">b. Indirect</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectTotal} />
+            <InputCell />
+            <Td className="pl-6">2c. 15-19 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent['15-19']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 6: Indirect Resident | Repeat Adolescent Birth header */}
+          <tr>
+            <Td className="pl-8">b1. Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectResident} />
+            <InputCell />
+            <Td className="pl-4">3. Repeat Adolescent Birth</Td>
+            <InputCell /><InputCell /><InputCell /><InputCell />
+          </tr>
+
+          {/* Row 7: Indirect Non-Resident | 3a. 10-14 */}
+          <tr>
+            <Td className="pl-8">b2. Non-Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectNonResident} />
+            <InputCell />
+            <Td className="pl-6">3a. 10-14 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.repeatAdolescent['10-14']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 8: empty mortality left | 3b. 15-19 */}
+          <tr>
+            <td colSpan={6} className="border border-gray-400" />
+            <Td className="pl-6 w-5/12">3b. 15-19 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.repeatAdolescent['15-19']} />
+            <InputCell />
+          </tr>
+
+          {/* Infant Mortality — separate sub-header + data row */}
+          <tr className="bg-gray-100">
+            <Th className="text-left" colSpan={6}>2. Infant Mortality (Male | Female | Total)</Th>
+            <Th colSpan={5}>&nbsp;</Th>
+          </tr>
+          <tr>
+            <Td className="pl-4">2. Infant Mortality</Td>
+            <InputCell value={m?.infant.male} />
+            <InputCell value={m?.infant.female} />
+            <InputCell value={m?.infant.total} />
+            <InputCell />
+            <td className="border border-gray-400" />
+            <td colSpan={5} className="border border-gray-400" />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function M1AllPrograms({
   familyPlanning, maternalCare, childCare,
   oralHealth, nonCommunicableDisease, environmentalHealth, infectiousDisease,
-  regions = [], provinces = [], municipalities = [], barangays = []
+  vitalStatistics,
+  regions = [], provinces = [], municipalities = [], barangays = [],
+  onApplyFilter,
 }: M1AllProgramsProps) {
   const { auth } = usePage<SharedData>().props;
   const user = auth?.user as any;
@@ -1622,6 +1728,11 @@ export default function M1AllPrograms({
   const [infectiousDiseaseData, setInfectiousDiseaseData] = useState<InfectiousDiseaseData | undefined>(infectiousDisease);
   const [idLoading, setIdLoading] = useState(false);
   const [idError, setIdError] = useState<string | null>(null);
+
+  // ─── Live Vital Statistics Report Data (fetched from PhoReportController@vitalStatistics) ───
+  const [vitalStatisticsData, setVitalStatisticsData] = useState<VitalStatisticsData | undefined>(vitalStatistics);
+  const [vsLoading, setVsLoading] = useState(false);
+  const [vsError, setVsError] = useState<string | null>(null);
 
   // ─── Cascading Location Filters ──────────────────────────────────────────
   const filteredProvinces = useMemo(() => {
@@ -1781,6 +1892,24 @@ export default function M1AllPrograms({
     }
   };
 
+  // ─── Fetch filtered report from PhoReportController@vitalStatistics (SECTION H) ───
+  const fetchVitalStatisticsReport = async () => {
+    setVsLoading(true);
+    setVsError(null);
+    try {
+      const res = await fetch(`/qfhsis/public/api/vital-statistics/report?${buildReportQuery()}`);
+      if (!res.ok) {
+        throw new Error(`Request failed with status ${res.status}`);
+      }
+      const json = await res.json();
+      setVitalStatisticsData(json.data as VitalStatisticsData);
+    } catch (err) {
+      setVsError(err instanceof Error ? err.message : 'Failed to load Vital Statistics report');
+    } finally {
+      setVsLoading(false);
+    }
+  };
+
   // ─── Apply Filters -> fetch every report tied to a live endpoint ─────────
   const applyFilters = async () => {
     await Promise.all([
@@ -1791,7 +1920,14 @@ export default function M1AllPrograms({
       fetchNonCommunicableDiseaseReport(),
       fetchEnvironmentalHealthReport(),
       fetchInfectiousDiseaseReport(),
+      fetchVitalStatisticsReport(),
     ]);
+
+    // Reveals the top-level "Submit Report" button and pre-fills its
+    // modal with the period that was just filtered by.
+    const monthNumber = selectedMonth ? months.indexOf(selectedMonth) + 1 : null;
+    const monthCode = monthNumber ? String(monthNumber).padStart(2, '0') : '';
+    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()));
   };
 
   const sections = [
@@ -1944,19 +2080,19 @@ export default function M1AllPrograms({
         <button
           type="button"
           onClick={applyFilters}
-          disabled={fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading}
+          disabled={fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading || vsLoading}
           className="bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700 transition text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {(fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading) ? 'Loading Report…' : 'Apply Filters'}
+          {(fpLoading || mcLoading || ccLoading || ohLoading || ncdLoading || ehLoading || idLoading || vsLoading) ? 'Loading Report…' : 'Apply Filters'}
         </button>
-        {(fpError || mcError || ccError || ohError || ncdError || ehError || idError) && (
+        {(fpError || mcError || ccError || ohError || ncdError || ehError || idError || vsError) && (
           <span className="text-red-600 text-xs font-medium">
-            {[fpError, mcError, ccError, ohError, ncdError, ehError, idError].filter(Boolean).join(' · ')}
+            {[fpError, mcError, ccError, ohError, ncdError, ehError, idError, vsError].filter(Boolean).join(' · ')}
           </span>
         )}
-        {!fpError && !mcError && !ccError && !ohError && !ncdError && !ehError && !idError &&
-          !fpLoading && !mcLoading && !ccLoading && !ohLoading && !ncdLoading && !ehLoading && !idLoading &&
-          (familyPlanningData || maternalCareData || childCareData || oralHealthData || nonCommunicableDiseaseData || environmentalHealthData || infectiousDiseaseData) && (
+        {!fpError && !mcError && !ccError && !ohError && !ncdError && !ehError && !idError && !vsError &&
+          !fpLoading && !mcLoading && !ccLoading && !ohLoading && !ncdLoading && !ehLoading && !idLoading && !vsLoading &&
+          (familyPlanningData || maternalCareData || childCareData || oralHealthData || nonCommunicableDiseaseData || environmentalHealthData || infectiousDiseaseData || vitalStatisticsData) && (
           <span className="text-gray-500 text-xs">
             Showing data for {selectedMonth || months[new Date().getMonth()]} {selectedYear}
             {selectedBarangays.length > 0
@@ -2024,7 +2160,7 @@ export default function M1AllPrograms({
         {show('e') && <SectionE nonCommunicableDisease={nonCommunicableDiseaseData} />}
         {show('f') && <SectionF environmentalHealth={environmentalHealthData} />}
         {show('g') && <SectionG infectiousDisease={infectiousDiseaseData} />}
-        {show('h') && <SectionH />}
+        {show('h') && <SectionH vitalStatistics={vitalStatisticsData} />}
       </div>
     </div>
   );

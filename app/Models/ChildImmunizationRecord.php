@@ -36,7 +36,7 @@ class ChildImmunizationRecord extends Model
         'ageMonths', 'sex', 'motherName', 'address',
 
         // CPAB
-        'td2Mother', 'td3To5Mother',
+        'td2Mother', 'td2MotherDate', 'td3To5Mother', 'td3To5MotherDate',
 
         // BCG
         'bcgWithin24hAge', 'bcgWithin24hDate', 'bcgLateAge', 'bcgLateDate',

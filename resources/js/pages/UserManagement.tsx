@@ -3,7 +3,7 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import axios from 'axios';
 import { 
-    Edit2, Mail, MapPin, Plus, Search, 
+    Edit2, Mail, MapPin, Phone, Plus, Search, 
     ShieldAlert, ShieldCheck, Trash2, 
     UserCheck, UserMinus, Users, X 
 } from 'lucide-react';
@@ -13,6 +13,7 @@ interface User {
     id: number;
     name: string;
     email: string;
+    contact_number?: number | null;
     role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH';
     status: 'Active' | 'Inactive';
     assigned_facility?: string;
@@ -76,6 +77,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const { data, setData, post, put, processing, errors, reset, clearErrors } = useForm({
         name: '',
         email: '',
+        contact_number: '' as number | '',
         role: 'Public Health Nurse' as User['role'],
         status: 'Active' as User['status'],
         assigned_facility: '',
@@ -113,6 +115,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         setData({
             name: '',
             email: '',
+            contact_number: '',
             role: 'Public Health Nurse',
             status: 'Active',
             assigned_facility: '',
@@ -150,6 +153,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         setData({
             name: user.name || '',
             email: user.email || '',
+            contact_number: user.contact_number ?? '',
             role: user.role,
             status: user.status,
             assigned_facility: user.assigned_facility || '',
@@ -389,6 +393,12 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                                                 <Mail className="w-3 h-3" />
                                                                 {user.email}
                                                             </p>
+                                                            {user.contact_number && (
+                                                                <p className="text-slate-400 flex items-center gap-1 mt-0.5">
+                                                                    <Phone className="w-3 h-3" />
+                                                                    {user.contact_number}
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </td>
@@ -485,6 +495,18 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                         placeholder="eleanor.vance@facility.gov"
                                     />
                                     {errors.email && <p className="text-rose-600 text-xs mt-0.5">{errors.email}</p>}
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Contact Number</label>
+                                    <input
+                                        type="number"
+                                        value={data.contact_number}
+                                        onChange={(e) => setData('contact_number', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+                                        placeholder="09171234567"
+                                    />
+                                    {errors.contact_number && <p className="text-rose-600 text-xs mt-0.5">{errors.contact_number}</p>}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">

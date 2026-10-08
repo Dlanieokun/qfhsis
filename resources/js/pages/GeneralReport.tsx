@@ -1,6 +1,6 @@
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
-import { Head, router } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, router, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 import {
     Activity,
@@ -154,6 +154,10 @@ export default function GeneralReport({
     const [selectedBarangay, setSelectedBarangay] = useState(filters.barangay || 'All');
     const barangays = filters.barangays ?? [];
 
+    // BHW users only see the Demographics card.
+    const { auth } = usePage<SharedData>().props;
+    const isBHW = String(auth?.user?.role ?? '').toUpperCase() === 'BHW';
+
     const applyFilters = (year: string, barangay: string) =>
         router.get('/qfhsis/public/fhsis/reports', { year, barangay }, { preserveState: true });
 
@@ -236,245 +240,249 @@ export default function GeneralReport({
                             <StatRow label="Female" value={demographics.female_count} />
                         </ReportCard>
 
-                        <ReportCard
-                            icon={<UsersRound className="w-4 h-4" />}
-                            iconBg="bg-amber-50" iconColor="text-amber-600"
-                            title="Family Planning"
-                            subtitle="Responsible parenthood methods and program reach"
-                            footerNote="Community resource utilization"
-                            onExport={go('fp', '/qfhsis/public/qfhsis/public/fhsis/reports/export-fp')}
-                        >
-                            <StatRow label="Active clients" value={fp_stats.total_clients} />
-                            <StatRow label="New acceptors this period" value={fp_stats.new_acceptors} accent="text-amber-600" />
-                        </ReportCard>
+                        {!isBHW && (
+                            <>
+                                <ReportCard
+                                    icon={<UsersRound className="w-4 h-4" />}
+                                    iconBg="bg-amber-50" iconColor="text-amber-600"
+                                    title="Family Planning"
+                                    subtitle="Responsible parenthood methods and program reach"
+                                    footerNote="Community resource utilization"
+                                    onExport={go('fp', '/qfhsis/public/fhsis/reports/export-fp')}
+                                >
+                                    <StatRow label="Active clients" value={fp_stats.total_clients} />
+                                    <StatRow label="New acceptors this period" value={fp_stats.new_acceptors} accent="text-amber-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<HeartPulse className="w-4 h-4" />}
-                            iconBg="bg-rose-50" iconColor="text-rose-500"
-                            title="Maternal Health"
-                            subtitle="Pregnancy tracking and prenatal monitoring"
-                            footerNote="Antenatal clinical data"
-                            onExport={go('maternal', '/qfhsis/public/fhsis/reports/export-mc')}
-                        >
-                            <StatRow label="Tracked pregnancies" value={maternal_stats.total_tracked} />
-                            <StatRow label="Adolescent pregnancies (≤19 yrs)" value={maternal_stats.adolescent_pregnancies} accent="text-rose-500" />
-                            <StatRow label="Normal pre-pregnancy BMI" value={maternal_stats.normal_bmi} />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<HeartPulse className="w-4 h-4" />}
+                                    iconBg="bg-rose-50" iconColor="text-rose-500"
+                                    title="Maternal Health"
+                                    subtitle="Pregnancy tracking and prenatal monitoring"
+                                    footerNote="Antenatal clinical data"
+                                    onExport={go('maternal', '/qfhsis/public/fhsis/reports/export-mc')}
+                                >
+                                    <StatRow label="Tracked pregnancies" value={maternal_stats.total_tracked} />
+                                    <StatRow label="Adolescent pregnancies (≤19 yrs)" value={maternal_stats.adolescent_pregnancies} accent="text-rose-500" />
+                                    <StatRow label="Normal pre-pregnancy BMI" value={maternal_stats.normal_bmi} />
+                                </ReportCard>
 
-                        {/* ─── CHILD HEALTH ─────────────────────────────────── */}
-                        <SectionHeading label="Child Health" />
+                                {/* ─── CHILD HEALTH ─────────────────────────────────── */}
+                                <SectionHeading label="Child Health" />
 
-                        <ReportCard
-                            icon={<Syringe className="w-4 h-4" />}
-                            iconBg="bg-emerald-50" iconColor="text-emerald-600"
-                            title="Child Immunization"
-                            subtitle="Infant vaccination records and FIC/CIC coverage"
-                            footerNote="0–11 month immunization tracking"
-                            onExport={go('child', '/qfhsis/public/fhsis/reports/export-ci')}
-                        >
-                            <StatRow label="Total records" value={child_immunization.total_records} />
-                            <StatRow label="Fully immunized children (FIC)" value={child_immunization.fic_count} accent="text-emerald-600" />
-                            <StatRow label="Completely immunized (CIC)" value={child_immunization.cic_count} accent="text-emerald-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Syringe className="w-4 h-4" />}
+                                    iconBg="bg-emerald-50" iconColor="text-emerald-600"
+                                    title="Child Immunization"
+                                    subtitle="Infant vaccination records and FIC/CIC coverage"
+                                    footerNote="0–11 month immunization tracking"
+                                    onExport={go('child', '/qfhsis/public/fhsis/reports/export-ci')}
+                                >
+                                    <StatRow label="Total records" value={child_immunization.total_records} />
+                                    <StatRow label="Fully immunized children (FIC)" value={child_immunization.fic_count} accent="text-emerald-600" />
+                                    <StatRow label="Completely immunized (CIC)" value={child_immunization.cic_count} accent="text-emerald-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<ShieldPlus className="w-4 h-4" />}
-                            iconBg="bg-teal-50" iconColor="text-teal-600"
-                            title="Child Immunization — School"
-                            subtitle="School-based and community HPV vaccination records"
-                            footerNote="SBI/CBI school-age coverage"
-                            onExport={go('child_immunization_school', '/qfhsis/public/fhsis/reports/export-cis')}
-                        >
-                            <StatRow label="Total records" value={child_immunization_school.total_records} />
-                            <StatRow label="HPV fully immunized females" value={child_immunization_school.hpv_completed} accent="text-teal-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<ShieldPlus className="w-4 h-4" />}
+                                    iconBg="bg-teal-50" iconColor="text-teal-600"
+                                    title="Child Immunization — School"
+                                    subtitle="School-based and community HPV vaccination records"
+                                    footerNote="SBI/CBI school-age coverage"
+                                    onExport={go('child_immunization_school', '/qfhsis/public/fhsis/reports/export-cis')}
+                                >
+                                    <StatRow label="Total records" value={child_immunization_school.total_records} />
+                                    <StatRow label="HPV fully immunized females" value={child_immunization_school.hpv_completed} accent="text-teal-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Baby className="w-4 h-4" />}
-                            iconBg="bg-sky-50" iconColor="text-sky-600"
-                            title="Child Nutrition"
-                            subtitle="Micronutrient supplementation and malnutrition management"
-                            footerNote="MAM / SAM therapeutic outcomes"
-                            onExport={go('child_nutrition', '/qfhsis/public/fhsis/reports/export-cn')}
-                        >
-                            <StatRow label="Total records" value={child_nutrition.total_records} />
-                            <StatRow label="MAM identified" value={child_nutrition.mam_identified} accent="text-amber-500" />
-                            <StatRow label="SAM identified" value={child_nutrition.sam_identified} accent="text-rose-500" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Baby className="w-4 h-4" />}
+                                    iconBg="bg-sky-50" iconColor="text-sky-600"
+                                    title="Child Nutrition"
+                                    subtitle="Micronutrient supplementation and malnutrition management"
+                                    footerNote="MAM / SAM therapeutic outcomes"
+                                    onExport={go('child_nutrition', '/qfhsis/public/fhsis/reports/export-cn')}
+                                >
+                                    <StatRow label="Total records" value={child_nutrition.total_records} />
+                                    <StatRow label="MAM identified" value={child_nutrition.mam_identified} accent="text-amber-500" />
+                                    <StatRow label="SAM identified" value={child_nutrition.sam_identified} accent="text-rose-500" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Stethoscope className="w-4 h-4" />}
-                            iconBg="bg-orange-50" iconColor="text-orange-500"
-                            title="Child Sick"
-                            subtitle="IMCI illness diagnosis and case management records"
-                            footerNote="Diarrhea, pneumonia & measles tracking"
-                            onExport={go('child_sick', '/qfhsis/public/fhsis/reports/export-cms')}
-                        >
-                            <StatRow label="Total records" value={child_sick.total_records} />
-                            <StatRow label="Diagnosed measles" value={child_sick.diagnosed_measles} accent="text-rose-500" />
-                            <StatRow label="Treated for pneumonia" value={child_sick.treated_pneumonia} accent="text-orange-500" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Stethoscope className="w-4 h-4" />}
+                                    iconBg="bg-orange-50" iconColor="text-orange-500"
+                                    title="Child Sick"
+                                    subtitle="IMCI illness diagnosis and case management records"
+                                    footerNote="Diarrhea, pneumonia & measles tracking"
+                                    onExport={go('child_sick', '/qfhsis/public/fhsis/reports/export-cms')}
+                                >
+                                    <StatRow label="Total records" value={child_sick.total_records} />
+                                    <StatRow label="Diagnosed measles" value={child_sick.diagnosed_measles} accent="text-rose-500" />
+                                    <StatRow label="Treated for pneumonia" value={child_sick.treated_pneumonia} accent="text-orange-500" />
+                                </ReportCard>
 
-                        {/* ─── ADULT & PREVENTIVE HEALTH ────────────────────── */}
-                        <SectionHeading label="Adult & Preventive Health" />
+                                {/* ─── ADULT & PREVENTIVE HEALTH ────────────────────── */}
+                                <SectionHeading label="Adult & Preventive Health" />
 
-                        <ReportCard
-                            icon={<Smile className="w-4 h-4" />}
-                            iconBg="bg-cyan-50" iconColor="text-cyan-600"
-                            title="Oral Health Care"
-                            subtitle="Dental screening, prophylaxis, and fluoride varnish records"
-                            footerNote="RPOC completeness tracking"
-                            onExport={go('oral_health', '/qfhsis/public/fhsis/reports/export-oral')}
-                        >
-                            <StatRow label="Total records" value={oral_health.total_records} />
-                            <StatRow label="Complete RPOC0 (0–71 mos)" value={oral_health.complete_rpoc0} accent="text-cyan-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Smile className="w-4 h-4" />}
+                                    iconBg="bg-cyan-50" iconColor="text-cyan-600"
+                                    title="Oral Health Care"
+                                    subtitle="Dental screening, prophylaxis, and fluoride varnish records"
+                                    footerNote="RPOC completeness tracking"
+                                    onExport={go('oral_health', '/qfhsis/public/fhsis/reports/export-oral')}
+                                >
+                                    <StatRow label="Total records" value={oral_health.total_records} />
+                                    <StatRow label="Complete RPOC0 (0–71 mos)" value={oral_health.complete_rpoc0} accent="text-cyan-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Activity className="w-4 h-4" />}
-                            iconBg="bg-violet-50" iconColor="text-violet-600"
-                            title="PhilPEN Risk Assessment"
-                            subtitle="NCD risk factor screening and hypertension monitoring"
-                            footerNote="BTI and lifestyle risk indicators"
-                            onExport={go('philpen', '/qfhsis/public/fhsis/reports/export-philpen')}
-                        >
-                            <StatRow label="Total assessed" value={philpen.total_records} />
-                            <StatRow label="Hypertension detected" value={philpen.hypertension_positive} accent="text-rose-500" />
-                            <StatRow label="Current smokers" value={philpen.current_smokers} accent="text-amber-500" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Activity className="w-4 h-4" />}
+                                    iconBg="bg-violet-50" iconColor="text-violet-600"
+                                    title="PhilPEN Risk Assessment"
+                                    subtitle="NCD risk factor screening and hypertension monitoring"
+                                    footerNote="BTI and lifestyle risk indicators"
+                                    onExport={go('philpen', '/qfhsis/public/fhsis/reports/export-philpen')}
+                                >
+                                    <StatRow label="Total assessed" value={philpen.total_records} />
+                                    <StatRow label="Hypertension detected" value={philpen.hypertension_positive} accent="text-rose-500" />
+                                    <StatRow label="Current smokers" value={philpen.current_smokers} accent="text-amber-500" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Eye className="w-4 h-4" />}
-                            iconBg="bg-indigo-50" iconColor="text-indigo-600"
-                            title="Eyes Screening"
-                            subtitle="Vision and eye disease detection records"
-                            footerNote="Referral and disease code tracking"
-                            onExport={go('eyes_screening', '/qfhsis/public/fhsis/reports/export-eyes')}
-                        >
-                            <StatRow label="Total screened" value={eyes_screening.total_screened} />
-                            <StatRow label="With eye disease detected" value={eyes_screening.with_eye_disease} accent="text-indigo-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Eye className="w-4 h-4" />}
+                                    iconBg="bg-indigo-50" iconColor="text-indigo-600"
+                                    title="Eyes Screening"
+                                    subtitle="Vision and eye disease detection records"
+                                    footerNote="Referral and disease code tracking"
+                                    onExport={go('eyes_screening', '/qfhsis/public/fhsis/reports/export-eyes')}
+                                >
+                                    <StatRow label="Total screened" value={eyes_screening.total_screened} />
+                                    <StatRow label="With eye disease detected" value={eyes_screening.with_eye_disease} accent="text-indigo-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Heart className="w-4 h-4" />}
-                            iconBg="bg-pink-50" iconColor="text-pink-600"
-                            title="Cervical Cancer Screening"
-                            subtitle="Cervical and breast cancer risk assessment records"
-                            footerNote="Linked-to-care outcomes"
-                            onExport={go('cervical_cancer', '/qfhsis/public/fhsis/reports/export-cervical')}
-                        >
-                            <StatRow label="Total records" value={cervical_cancer.total_records} />
-                            <StatRow label="Cervical screening done" value={cervical_cancer.cervical_done} accent="text-pink-600" />
-                            <StatRow label="Breast risk assessed" value={cervical_cancer.breast_risk_assessed} accent="text-pink-500" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Heart className="w-4 h-4" />}
+                                    iconBg="bg-pink-50" iconColor="text-pink-600"
+                                    title="Cervical Cancer Screening"
+                                    subtitle="Cervical and breast cancer risk assessment records"
+                                    footerNote="Linked-to-care outcomes"
+                                    onExport={go('cervical_cancer', '/qfhsis/public/fhsis/reports/export-cervical')}
+                                >
+                                    <StatRow label="Total records" value={cervical_cancer.total_records} />
+                                    <StatRow label="Cervical screening done" value={cervical_cancer.cervical_done} accent="text-pink-600" />
+                                    <StatRow label="Breast risk assessed" value={cervical_cancer.breast_risk_assessed} accent="text-pink-500" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Users className="w-4 h-4" />}
-                            iconBg="bg-slate-100" iconColor="text-slate-600"
-                            title="Geriatric Screening"
-                            subtitle="Senior citizen health screening and immunization records"
-                            footerNote="60+ PPV and influenza coverage"
-                            onExport={go('geriatric', '/qfhsis/public/fhsis/reports/export-geriatric')}
-                        >
-                            <StatRow label="Total records" value={geriatric.total_records} />
-                            <StatRow label="PPV received (≥60 yrs)" value={geriatric.ppv_received} accent="text-slate-700" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Users className="w-4 h-4" />}
+                                    iconBg="bg-slate-100" iconColor="text-slate-600"
+                                    title="Geriatric Screening"
+                                    subtitle="Senior citizen health screening and immunization records"
+                                    footerNote="60+ PPV and influenza coverage"
+                                    onExport={go('geriatric', '/qfhsis/public/fhsis/reports/export-geriatric')}
+                                >
+                                    <StatRow label="Total records" value={geriatric.total_records} />
+                                    <StatRow label="PPV received (≥60 yrs)" value={geriatric.ppv_received} accent="text-slate-700" />
+                                </ReportCard>
 
-                        {/* ─── COMMUNICABLE DISEASE ─────────────────────────── */}
-                        <SectionHeading label="Communicable Disease" />
+                                {/* ─── COMMUNICABLE DISEASE ─────────────────────────── */}
+                                <SectionHeading label="Communicable Disease" />
 
-                        <ReportCard
-                            icon={<Microscope className="w-4 h-4" />}
-                            iconBg="bg-lime-50" iconColor="text-lime-700"
-                            title="Filariasis Registry"
-                            subtitle="Lymphatic filariasis NBE/RDT screening and MDA records"
-                            footerNote="Lymphedema and elephantiasis morbidity"
-                            onExport={go('filariasis', '/qfhsis/public/fhsis/reports/export-filariasis')}
-                        >
-                            <StatRow label="Total registered" value={filariasis.total_records} />
-                            <StatRow label="With lymphedema" value={filariasis.with_lymphedema} accent="text-lime-700" />
-                            <StatRow label="With elephantiasis" value={filariasis.with_elephantiasis} accent="text-amber-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Microscope className="w-4 h-4" />}
+                                    iconBg="bg-lime-50" iconColor="text-lime-700"
+                                    title="Filariasis Registry"
+                                    subtitle="Lymphatic filariasis NBE/RDT screening and MDA records"
+                                    footerNote="Lymphedema and elephantiasis morbidity"
+                                    onExport={go('filariasis', '/qfhsis/public/fhsis/reports/export-filariasis')}
+                                >
+                                    <StatRow label="Total registered" value={filariasis.total_records} />
+                                    <StatRow label="With lymphedema" value={filariasis.with_lymphedema} accent="text-lime-700" />
+                                    <StatRow label="With elephantiasis" value={filariasis.with_elephantiasis} accent="text-amber-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Leaf className="w-4 h-4" />}
-                            iconBg="bg-green-50" iconColor="text-green-700"
-                            title="Leprosy Registry"
-                            subtitle="Leprosy case confirmation, MDT, and treatment outcomes"
-                            footerNote="Fixed MDT completion tracking"
-                            onExport={go('leprosy', '/qfhsis/public/fhsis/reports/export-leprosy')}
-                        >
-                            <StatRow label="Total registered" value={leprosy.total_records} />
-                            <StatRow label="Paucibacillary cases" value={leprosy.paucibacillary} />
-                            <StatRow label="Multibacillary cases" value={leprosy.multibacillary} accent="text-amber-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Leaf className="w-4 h-4" />}
+                                    iconBg="bg-green-50" iconColor="text-green-700"
+                                    title="Leprosy Registry"
+                                    subtitle="Leprosy case confirmation, MDT, and treatment outcomes"
+                                    footerNote="Fixed MDT completion tracking"
+                                    onExport={go('leprosy', '/qfhsis/public/fhsis/reports/export-leprosy')}
+                                >
+                                    <StatRow label="Total registered" value={leprosy.total_records} />
+                                    <StatRow label="Paucibacillary cases" value={leprosy.paucibacillary} />
+                                    <StatRow label="Multibacillary cases" value={leprosy.multibacillary} accent="text-amber-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<ShieldPlus className="w-4 h-4" />}
-                            iconBg="bg-red-50" iconColor="text-red-600"
-                            title="Rabies Records"
-                            subtitle="Animal bite exposures and post-exposure prophylaxis"
-                            footerNote="PVRV / PCEV outcome monitoring"
-                            onExport={go('rabies')}
-                        >
-                            <StatRow label="Total records" value={rabies.total_records} />
-                            <StatRow label="Completed PVRV series" value={rabies.completed_pvrv} accent="text-red-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<ShieldPlus className="w-4 h-4" />}
+                                    iconBg="bg-red-50" iconColor="text-red-600"
+                                    title="Rabies Records"
+                                    subtitle="Animal bite exposures and post-exposure prophylaxis"
+                                    footerNote="PVRV / PCEV outcome monitoring"
+                                    onExport={go('rabies')}
+                                >
+                                    <StatRow label="Total records" value={rabies.total_records} />
+                                    <StatRow label="Completed PVRV series" value={rabies.completed_pvrv} accent="text-red-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Droplets className="w-4 h-4" />}
-                            iconBg="bg-blue-50" iconColor="text-blue-700"
-                            title="Schistosomiasis Registry"
-                            subtitle="Screening, diagnosis, treatment, and MDA records"
-                            footerNote="Confirmed cases and cure rates"
-                            onExport={go('schistosomiasis', '/qfhsis/public/fhsis/reports/export-schisto')}
-                        >
-                            <StatRow label="Total registered" value={schistosomiasis.total_records} />
-                            <StatRow label="Confirmed positive" value={schistosomiasis.confirmed_positive} accent="text-blue-700" />
-                            <StatRow label="MDA administered" value={schistosomiasis.mda_given} accent="text-emerald-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Droplets className="w-4 h-4" />}
+                                    iconBg="bg-blue-50" iconColor="text-blue-700"
+                                    title="Schistosomiasis Registry"
+                                    subtitle="Screening, diagnosis, treatment, and MDA records"
+                                    footerNote="Confirmed cases and cure rates"
+                                    onExport={go('schistosomiasis', '/qfhsis/public/fhsis/reports/export-schisto')}
+                                >
+                                    <StatRow label="Total registered" value={schistosomiasis.total_records} />
+                                    <StatRow label="Confirmed positive" value={schistosomiasis.confirmed_positive} accent="text-blue-700" />
+                                    <StatRow label="MDA administered" value={schistosomiasis.mda_given} accent="text-emerald-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<TreePine className="w-4 h-4" />}
-                            iconBg="bg-emerald-50" iconColor="text-emerald-700"
-                            title="Soil-Transmitted Helminthiasis"
-                            subtitle="STH screening, treatment, and MDA round coverage"
-                            footerNote="January & July MDA rounds"
-                            onExport={go('sth', '/qfhsis/public/fhsis/reports/export-sth')}
-                        >
-                            <StatRow label="Total registered" value={sth.total_records} />
-                            <StatRow label="Positive on screening" value={sth.positive_result} accent="text-amber-600" />
-                            <StatRow label="January MDA" value={sth.mda_jan} accent="text-emerald-600" />
-                            <StatRow label="July MDA" value={sth.mda_jul} accent="text-emerald-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<TreePine className="w-4 h-4" />}
+                                    iconBg="bg-emerald-50" iconColor="text-emerald-700"
+                                    title="Soil-Transmitted Helminthiasis"
+                                    subtitle="STH screening, treatment, and MDA round coverage"
+                                    footerNote="January & July MDA rounds"
+                                    onExport={go('sth', '/qfhsis/public/fhsis/reports/export-sth')}
+                                >
+                                    <StatRow label="Total registered" value={sth.total_records} />
+                                    <StatRow label="Positive on screening" value={sth.positive_result} accent="text-amber-600" />
+                                    <StatRow label="January MDA" value={sth.mda_jan} accent="text-emerald-600" />
+                                    <StatRow label="July MDA" value={sth.mda_jul} accent="text-emerald-600" />
+                                </ReportCard>
 
-                        {/* ─── MENTAL & ENVIRONMENTAL HEALTH ────────────────── */}
-                        <SectionHeading label="Mental & Environmental Health" />
+                                {/* ─── MENTAL & ENVIRONMENTAL HEALTH ────────────────── */}
+                                <SectionHeading label="Mental & Environmental Health" />
 
-                        <ReportCard
-                            icon={<Brain className="w-4 h-4" />}
-                            iconBg="bg-purple-50" iconColor="text-purple-600"
-                            title="Mental Health"
-                            subtitle="mhGAP screening and mental disorder assessment records"
-                            footerNote="Community mental health coverage"
-                            onExport={go('mental_health', '/qfhsis/public/fhsis/reports/export-mh')}
-                        >
-                            <StatRow label="Total assessed" value={mental_health.total_records} />
-                            <StatRow label="Screened via mhGAP" value={mental_health.screened_mhgap} accent="text-purple-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Brain className="w-4 h-4" />}
+                                    iconBg="bg-purple-50" iconColor="text-purple-600"
+                                    title="Mental Health"
+                                    subtitle="mhGAP screening and mental disorder assessment records"
+                                    footerNote="Community mental health coverage"
+                                    onExport={go('mental_health', '/qfhsis/public/fhsis/reports/export-mh')}
+                                >
+                                    <StatRow label="Total assessed" value={mental_health.total_records} />
+                                    <StatRow label="Screened via mhGAP" value={mental_health.screened_mhgap} accent="text-purple-600" />
+                                </ReportCard>
 
-                        <ReportCard
-                            icon={<Microscope className="w-4 h-4" />}
-                            iconBg="bg-teal-50" iconColor="text-teal-700"
-                            title="Environmental Health"
-                            subtitle="Water source quality and sanitation facility records"
-                            footerNote="WASH indicators and safety plans"
-                            onExport={go('environmental_health', '/qfhsis/public/fhsis/reports/export-envi')}
-                        >
-                            <StatRow label="Total households" value={environmental_health.total_records} />
-                            <StatRow label="Safely managed drinking water" value={environmental_health.safely_managed_water} accent="text-teal-600" />
-                            <StatRow label="Safely managed sanitation" value={environmental_health.safely_managed_sanitation} accent="text-teal-600" />
-                        </ReportCard>
+                                <ReportCard
+                                    icon={<Microscope className="w-4 h-4" />}
+                                    iconBg="bg-teal-50" iconColor="text-teal-700"
+                                    title="Environmental Health"
+                                    subtitle="Water source quality and sanitation facility records"
+                                    footerNote="WASH indicators and safety plans"
+                                    onExport={go('environmental_health', '/qfhsis/public/fhsis/reports/export-envi')}
+                                >
+                                    <StatRow label="Total households" value={environmental_health.total_records} />
+                                    <StatRow label="Safely managed drinking water" value={environmental_health.safely_managed_water} accent="text-teal-600" />
+                                    <StatRow label="Safely managed sanitation" value={environmental_health.safely_managed_sanitation} accent="text-teal-600" />
+                                </ReportCard>
+                            </>
+                        )}
 
                     </div>
 

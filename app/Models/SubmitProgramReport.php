@@ -2,14 +2,12 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SubmitProgramReport extends Model
 {
-    use HasFactory;
-
+    // The migration creates the singular table name.
     protected $table = 'submit_program_report';
 
     protected $fillable = [

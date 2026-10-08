@@ -24,6 +24,9 @@ use App\Models\RabiesRecord;
 use App\Models\SchistosomiasisRegistry;
 use App\Models\SthRegistryRecord;
 use App\Models\LeprosyRegistry;
+use App\Models\MaternalDeath;
+use App\Models\InfantDeath;
+use App\Models\IntrapartumRecord;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -295,8 +298,18 @@ class PhoReportController extends Controller
             //     }
             // });
 
-        // return response()->json($records, 200);
-            // Log::info('Sync upload received (delta push of unsynced records).');
+        // True when a date value falls inside the selected reporting period.
+        $inPeriod = function ($value) use ($startOfSelected, $endOfSelected): bool {
+            if (empty($value)) {
+                return false;
+            }
+            try {
+                return Carbon::parse($value)->between($startOfSelected, $endOfSelected);
+            } catch (\Exception $e) {
+                return false;
+            }
+        };
+
         foreach ($records as $record) {
             $bracket = $this->ageBracket($record->age !== null ? (int) $record->age : null);
             if (!$bracket) {
@@ -309,7 +322,8 @@ class PhoReportController extends Controller
             };
 
             // ── Nutritional Status (from MaternalCareRecord.bmiStatus) ──────────
-            if (!empty($record->bmiStatus)) {
+            // Additional condition: Prenatal8AncRecord.visit8Date within the period.
+            if (!empty($record->bmiStatus) && $inPeriod($record->prenatal8Anc?->visit8Date)) {
                 $bump($prenatal, 'nutritionAssessed');
                 if ($this->contains($record->bmiStatus, 'normal')) {
                     $bump($prenatal, 'nutritionNormal');
@@ -317,29 +331,27 @@ class PhoReportController extends Controller
                     $bump($prenatal, 'nutritionLow');
                 } elseif ($this->contains($record->bmiStatus, 'high') || $this->contains($record->bmiStatus, 'over') || $this->contains($record->bmiStatus, 'obese')) {
                     $bump($prenatal, 'nutritionHigh');
-                    
                 }
             }
 
             // ── Td-Containing Vaccination (prenatal_immunization_records + gravidaPara parity) ──
             if ($imm = $record->prenatalImmunization) {
-                $tdDosesGiven = collect([$imm->td1Date, $imm->td2Date, $imm->td3Date, $imm->td4Date, $imm->td5Date])
-                    ->filter(fn ($d) => !empty($d))
-                    ->count();
-
-                preg_match('/G\s*(\d+)/i', (string) $record->gravidaPara, $gMatch);
-                $gravida = isset($gMatch[1]) ? (int) $gMatch[1] : null;
-
-                if ($gravida === 1 && $tdDosesGiven >= 2) {
-                    $bump($prenatal, 'td2PlusFirstPregnancy');
-                } elseif ($gravida !== null && $gravida >= 2 && $tdDosesGiven >= 3) {
+                // return response()->json($imm, 200);
+                if($inPeriod($imm->td5Date)){
                     $bump($prenatal, 'td2Plus');
+                }elseif ($inPeriod($imm->td4Date)) {
+                    $bump($prenatal, 'td2Plus');
+                }elseif ($inPeriod($imm->td3Date)) {
+                    $bump($prenatal, 'td2Plus');
+                }elseif ($inPeriod($imm->td2Date)) {
+                    $bump($prenatal, 'td2PlusFirstPregnancy');
                 }
             }
 
             // ── 8ANC completion + BP / danger signs / referral (prenatal_8anc_records) ──
             if ($anc = $record->prenatal8Anc) {
-                if ($this->truthy($anc->completed8Anc)) {
+                // Additional condition: visit8Date within the period.
+                if ($this->truthy($anc->completed8Anc) && $inPeriod($anc->visit8Date)) {
                     if($anc->classificationStatus === "A - Resident"){
                         $bump($prenatal, 'anc8Completed');
                         $bump($prenatal, 'anc8A1');
@@ -369,29 +381,31 @@ class PhoReportController extends Controller
                         break;
                     }
                 }
-                if ($bpTaken) {
+                // return response()->json($anc, 200);
+                if ($bpTaken && ($inPeriod($anc->visit1Date) || $inPeriod($anc->visit2Date) || $inPeriod($anc->visit3Date) || $inPeriod($anc->visit4Date) || $inPeriod($anc->visit5Date) || $inPeriod($anc->visit6Date) || $inPeriod($anc->visit7Date) || $inPeriod($anc->visit8Date))) {
                     $bump($prenatal, 'bpMeasured');
                 }
 
-                if ($this->truthy($anc->highBp) || $this->truthy($anc->dangerSigns)) {
+                if ($this->truthy($anc->highBp) || $this->truthy($anc->dangerSigns) && $inPeriod($anc->visit8Date)) {
                     $bump($prenatal, 'highBpOrDanger');
                 }
-                if ($this->truthy($anc->highBpReferred)) {
+                if ($this->truthy($anc->highBpReferred) && $inPeriod($anc->referralDateHighBp)) {
                     $bump($prenatal, 'referred');
                 }
             }
 
             // ── Lab Screening: Anemia (CBC) + Gestational Diabetes (prenatal_lab_screening_records) ──
             if ($lab = $record->prenatalLabScreening) {
-                if (!empty($lab->cbcDate)) {
+                // return response()->json($inPeriod($lab->cbcDate), 200);
+                if (!empty($lab->cbcDate) && $inPeriod($lab->cbcDate)) {
                     $bump($prenatal, 'anemiaScreened');
-                    if ($this->contains($lab->cbcResult, 'anemi') || $this->contains($lab->cbcResult, 'low')) {
+                    if ($this->contains($lab->cbcResult, 'Anemic')){
                         $bump($prenatal, 'anemiaDiagnosed');
                     }
                 }
-                if (!empty($lab->gdmDate)) {
-                    $bump($prenatal, 'gdmScreened');
-                    if ($this->contains($lab->gdmResult, 'positive') || $this->contains($lab->gdmResult, 'gdm')) {
+                if (!empty($lab->gdmDate) && $inPeriod($lab->gdmDate)) {
+                        $bump($prenatal, 'gdmScreened');
+                    if ($this->contains($lab->gdmResult, 'At Risk (GDM)')){
                         $bump($prenatal, 'gdmDiagnosed');
                     }
                 }
@@ -399,124 +413,130 @@ class PhoReportController extends Controller
 
             // ── Supplementation + Deworming (prenatal_supplementation_records) ──
             if ($supp = $record->prenatalSupplementation) {
-                if ($this->truthy($supp->completed_ifa)) {
+                // return response()->json($supp, 200);
+                if ($this->truthy($supp->completed_ifa) && $inPeriod($supp->ifa_completed_date)) {
                     $bump($prenatal, 'ifaCompleted');
                 }
-                if ($this->truthy($supp->completed_mm)) {
+                if ($this->truthy($supp->completed_mm) && $inPeriod($supp->mm_completed_date)) {
                     $bump($prenatal, 'mmCompleted');
                 }
-                if ($this->truthy($supp->completed_cc)) {
+                if ($this->truthy($supp->completed_cc) && $inPeriod($supp->cc_completed_date)) {
                     $bump($prenatal, 'ccCompleted');
                 }
-                if ($this->truthy($supp->received_deworming)) {
+                if ($this->truthy($supp->received_deworming) && $inPeriod($supp->deworming_date)) {
                     $bump($prenatal, 'dewormed');
                 }
             }
             
             // ── Postpartum Care (postpartum_records) ─────────────────────────
             if ($pnc = $record->postpartum) {
-                
+
+                // return response()->json($pnc, 200);
                 $visitsCompleted = collect([$pnc->visit24hDate, $pnc->visit1wDate, $pnc->visit2_4wDate, $pnc->visit4_6wDate])
                     ->filter(fn ($d) => !empty($d))
                     ->count();
                     
                 if ($visitsCompleted >= 4 || $pnc->visit4_6wDate !== null) {
-                    if($pnc->PostpartumClassification === 'A - Resident'){
+                    if($pnc->PostpartumClassification === 'A - Resident' && $inPeriod($pnc->visit4_6wDate)){
                         $bump($postpartum, 'pnc4Completed');
                         $bump($postpartum, 'pnc4A1');
                     }
-                    if($pnc->PostpartumClassification === 'B - Trans in'){
+                    if($pnc->PostpartumClassification === 'B - Trans in' && $inPeriod($pnc->visit4_6wDate)){
                         $bump($postpartum, 'pnc4Completed');
                         $bump($postpartum, 'pnc4A2');
                     }
-                    if($pnc->PostpartumClassification === 'A - Resident'){
+                    if($pnc->PostpartumClassification === 'A - Resident' && $inPeriod($pnc->visit4_6wDate)){
                         $bump($postpartum, 'pnc41B');
                         $bump($postpartum, 'pnc4B1');
                     }
-                    if($pnc->PostpartumClassification === 'B - Trans in'){
+                    if($pnc->PostpartumClassification === 'B - Trans in' && $inPeriod($pnc->visit4_6wDate)){
                         $bump($postpartum, 'pnc41B');
                         $bump($postpartum, 'pnc4B2');
                     }
-                    if($pnc->PostpartumClassification === 'C - Trans Out before completing 4PNC'){
+                    if($pnc->PostpartumClassification === 'C - Trans Out before completing 4PNC' && $inPeriod($pnc->visit4_6wDate)){
                         $bump($postpartum, 'pnc41B');
                         $bump($postpartum, 'pnc4B3');
                     }
                 }
-                if ($this->truthy($pnc->completedIfa)) {
+                if ($this->truthy($pnc->completedIfa) && $inPeriod($pnc->ifaCompletionDate)) {
                     $bump($postpartum, 'ifaCompleted');
                 }
-                if ($this->truthy($pnc->completedVitA)) {
+                if ($this->truthy($pnc->completedVitA) && $inPeriod($pnc->vitACompletionDate)) {
                     $bump($postpartum, 'vitACompleted');
                 }
 
                 $bpTakenPnc = collect([$pnc->bpSys24h, $pnc->bpSys1w, $pnc->bpSys2_4w, $pnc->bpSys4_6w])
                     ->filter(fn ($v) => !empty($v))
                     ->isNotEmpty();
-                if ($bpTakenPnc) {
+                    // return response()->json($bpTakenPnc && ($inPeriod($pnc->visit24hDate) || $inPeriod($pnc->visit1wDate) || $inPeriod($pnc->visit2_4wDate) || $inPeriod($pnc->visit4_6wDate)), 200);
+                if ($bpTakenPnc && ($inPeriod($pnc->visit24hDate) || $inPeriod($pnc->visit1wDate) || $inPeriod($pnc->visit2_4wDate) || $inPeriod($pnc->visit4_6wDate))) {
                     $bump($postpartum, 'bpMeasured');
                 }
-                if ($this->truthy($pnc->highBpGeneral) || $this->truthy($pnc->dangerSignsGeneral)) {
+                if (($this->truthy($pnc->highBpGeneral) || $this->truthy($pnc->dangerSignsGeneral)) && $inPeriod($pnc->visit4_6wDate)) {
                     $bump($postpartum, 'highBpOrDanger');
                 }
-                if ($this->truthy($pnc->referredGeneral)) {
+                if ($this->truthy($pnc->referredGeneral) && $inPeriod($pnc->referralDateGeneral)) {
                     $bump($postpartum, 'referred');
                 }
             }
 
             // ── Intrapartum / Newborn Care, tallied by the MOTHER's age bracket (intrapartum_records) ──
             if ($ip = $record->intrapartum) {
-                $bumpAge = function (string $key) use (&$intrapartum, $bracket) {
-                    $intrapartum[$key][$bracket]++;
-                    $intrapartum[$key]['total']++;
-                };
+                // return response()->json($ip, 200);
+                if ($inPeriod($ip->deliveryDate)) {
+                    $bumpAge = function (string $key) use (&$intrapartum, $bracket) {
+                        $intrapartum[$key][$bracket]++;
+                        $intrapartum[$key]['total']++;
+                    };
 
-                $bumpAge('totalDeliveries');
+                    $bumpAge('totalDeliveries');
 
-                if ($this->contains($ip->attendantAtBirth, 'physician')) {
-                    $bumpAge('attendantPhysician');
-                }
-                if ($this->contains($ip->attendantAtBirth, 'nurse')) {
-                    $bumpAge('attendantNurse');
-                }
-                if ($this->contains($ip->attendantAtBirth, 'midwife')) {
-                    $bumpAge('attendantMidwife');
-                }
+                    if ($this->contains($ip->attendantAtBirth, 'MD - Doctor')) {
+                        $bumpAge('attendantPhysician');
+                    }
+                    if ($this->contains($ip->attendantAtBirth, 'RN - Nurse')) {
+                        $bumpAge('attendantNurse');
+                    }
+                    if ($this->contains($ip->attendantAtBirth, 'MW - Midwife')) {
+                        $bumpAge('attendantMidwife');
+                    }
 
-                if ($this->contains($ip->placeOfDelivery, 'public')) {
-                    $bumpAge('facilityPublic');
-                }
-                if ($this->contains($ip->placeOfDelivery, 'private')) {
-                    $bumpAge('facilityPrivate');
-                }
+                    if ($this->contains($ip->placeOfDelivery, 'Public Facility')) {
+                        $bumpAge('facilityPublic');
+                    }
+                    if ($this->contains($ip->placeOfDelivery, 'Private Facility')) {
+                        $bumpAge('facilityPrivate');
+                    }
 
-                if ($this->contains($ip->deliveryType, 'vaginal')) {
-                    $bumpAge('deliveryVaginal');
-                }
-                if ($this->contains($ip->deliveryType, 'cesarean') || $this->contains($ip->deliveryType, 'caesarean')) {
-                    $bumpAge('deliveryCesarean');
-                }
-                if ($this->contains($ip->deliveryType, 'combined')) {
-                    $bumpAge('deliveryCombined');
-                }
+                    if ($this->contains($ip->deliveryType, 'VD - Vaginal Delivery')) {
+                        $bumpAge('deliveryVaginal');
+                    }
+                    if ($this->contains($ip->deliveryType, 'CS - Cesarean Section') || $this->contains($ip->deliveryType, 'caesarean')) {
+                        $bumpAge('deliveryCesarean');
+                    }
+                    if ($this->contains($ip->deliveryType, 'CVCD - Combined Delivery')) {
+                        $bumpAge('deliveryCombined');
+                    }
 
-                if ($this->contains($ip->deliveryOutcome, 'pre-term') || $this->contains($ip->deliveryOutcome, 'preterm')) {
-                    $bumpAge('outcomePreTerm');
-                } elseif ($this->contains($ip->deliveryOutcome, 'full') || $this->contains($ip->deliveryOutcome, 'term')) {
-                    $bumpAge('outcomeFullTerm');
-                }
-                if ($this->contains($ip->deliveryOutcome, 'fetal death') || $this->contains($ip->deliveryOutcome, 'stillbirth')) {
-                    $bumpAge('outcomeFetalDeath');
-                }
-                if ($this->contains($ip->deliveryOutcome, 'abortion') || $this->contains($ip->deliveryOutcome, 'miscarriage')) {
-                    $bumpAge('outcomeAbortion');
-                }
+                    if ($this->contains($ip->deliveryOutcome, 'pre-term') || $this->contains($ip->deliveryOutcome, 'PT - Pre-term')) {
+                        $bumpAge('outcomePreTerm');
+                    } elseif ($this->contains($ip->deliveryOutcome, 'full') || $this->contains($ip->deliveryOutcome, 'FT - Full Term')) {
+                        $bumpAge('outcomeFullTerm');
+                    }
+                    if ($this->contains($ip->deliveryOutcome, 'fetal death') || $this->contains($ip->deliveryOutcome, 'FD - Fetal Death')) {
+                        $bumpAge('outcomeFetalDeath');
+                    }
+                    if ($this->contains($ip->deliveryOutcome, 'abortion') || $this->contains($ip->deliveryOutcome, 'AB - Abortion')) {
+                        $bumpAge('outcomeAbortion');
+                    }
 
-                if ($this->contains($ip->weightClassification, 'normal')) {
-                    $bumpAge('birthWeightNormal');
-                } elseif ($this->contains($ip->weightClassification, 'low')) {
-                    $bumpAge('birthWeightLow');
-                } else {
-                    $bumpAge('birthWeightUnknown');
+                    if ($this->contains($ip->weightClassification, 'A - Normal (>2500g)')) {
+                        $bumpAge('birthWeightNormal');
+                    } elseif ($this->contains($ip->weightClassification, 'B - Low (<2500g)')) {
+                        $bumpAge('birthWeightLow');
+                    } else {
+                        $bumpAge('birthWeightUnknown');
+                    }
                 }
             }
         }
@@ -639,11 +659,19 @@ class PhoReportController extends Controller
             }
 
             // CPAB — Children Protected At Birth.
-            // Spec: td2Mother = 1 OR td3To5Mother = 1, AND dateOfBirth < 12 months.
-            // No "dose given this month" date to check — this is a birth-cohort flag,
-            // so we simply count it for every current-year (0-11 mo) child whose
-            // record falls in the reporting period via the location/query scope above.
-            if ($isCurrentYearCohort && ($this->truthy($rec->td2Mother ?? null) || $this->truthy($rec->td3To5Mother ?? null))) {
+            // Spec: (td2Mother = 1 OR td3To5Mother = 1), AND dateOfBirth < 12 months,
+            // AND the mother's Td dose date (td2MotherDate OR td3To5MotherDate)
+            // falls within the reporting period.
+            $td2MotherDate     = $this->parseDateOrNull($rec->td2MotherDate ?? null);
+            $td3To5MotherDate  = $this->parseDateOrNull($rec->td3To5MotherDate ?? null);
+            $td2InPeriod       = $td2MotherDate && $td2MotherDate->between($startOfSelected, $endOfSelected);
+            $td3To5InPeriod    = $td3To5MotherDate && $td3To5MotherDate->between($startOfSelected, $endOfSelected);
+
+            if (
+                $isCurrentYearCohort
+                && ($this->truthy($rec->td2Mother ?? null) || $this->truthy($rec->td3To5Mother ?? null))
+                && ($td2InPeriod || $td3To5InPeriod)
+            ) {
                 $bump($imm0_11, 'cpab', $rec->sex ?? null);
             }
 
@@ -675,7 +703,7 @@ class PhoReportController extends Controller
             $grade    = strtoupper(trim((string) ($rec->gradeLevel ?? '')));
             $isGrade1 = $grade === 'A';
             $isGrade7 = $grade === 'C';
-
+            // return response()->json($rec, 200);
             $tdDate = $this->parseDateOrNull($rec->tdDate ?? null);
             if ($tdDate && $tdDate->between($startOfSelected, $endOfSelected)) {
                 if ($isGrade1) $bump($schoolImm, 'grade1Td', $rec->sex ?? null);
@@ -1767,6 +1795,7 @@ class PhoReportController extends Controller
             // All records here are pregnant women; there is no separate sex
             // column on maternal_care_records, so counts are bumped as female.
             $sex = 'female';
+            // return response()->json($data, 200);
 
             $syphilisDate = $this->parseDateOrNull($lab->syphilisDate ?? null);
             if ($syphilisDate && $syphilisDate->between($startOfSelected, $endOfSelected)) {
@@ -1829,6 +1858,183 @@ class PhoReportController extends Controller
      * "previous month/quarter" ledger comparisons), plus a small metadata
      * array echoed back in each endpoint's `period` response key.
      */
+
+    /**
+     * SECTION H. VITAL STATISTICS
+     *
+     * Part I — Mortality
+     *   1. Maternal Mortality (Direct / Indirect, Resident / Non-Resident)
+     *   2. Infant Mortality (Male / Female / Total)
+     *
+     * Part II — Natality
+     *   1. Live births (Total) — intrapartum_records where deliveryDate is in the period,
+     *      excluding fetal death and abortion outcomes.
+     *   2. Adolescent Birth (<10 / 10-14 / 15-19) — computed from the mother's birthDate
+     *      vs deliveryDate via the maternalCareRecord relation.
+     *   3. Repeat Adolescent Birth (10-14 / 15-19) — adolescent mothers whose
+     *      gravidaPara field indicates gravida > 1.
+     */
+    public function vitalStatistics(Request $request)
+    {
+        $period          = $this->resolveReportPeriod($request);
+        $startOfSelected = $period['start'];
+        $endOfSelected   = $period['end'];
+
+        $location = $this->resolveLocationFilters($request);
+
+        // ── Part I.1  Maternal Mortality ────────────────────────────────────────
+        $maternalDeaths = MaternalDeath::with('householdProfile')
+            ->whereHas('householdProfile', function ($q) use ($location) {
+                $this->applyHouseholdLocationFilter($q, $location);
+            })
+            ->get()
+            ->filter(function ($d) use ($startOfSelected, $endOfSelected) {
+                $date = $this->parseDateOrNull($d->date_of_registration);
+                return $date && $date->between($startOfSelected, $endOfSelected);
+            });
+
+        $maternal = [
+            'directResident'      => 0,
+            'directNonResident'   => 0,
+            'directTotal'         => 0,
+            'indirectResident'    => 0,
+            'indirectNonResident' => 0,
+            'indirectTotal'       => 0,
+            'total'               => 0,
+        ];
+
+        foreach ($maternalDeaths as $d) {
+            $cause = strtolower((string) ($d->cause_of_death ?? ''));
+            $place = strtolower((string) ($d->place_of_occurrence ?? ''));
+
+            // cause_of_death values: "A - Direct" / "B - Indirect"
+            $isDirect   = str_contains($cause, 'direct') && !str_contains($cause, 'indirect');
+            $isIndirect = str_contains($cause, 'indirect');
+
+            // place_of_occurrence values: "A - Resident" / "A - Non-Resident"
+            $isResident    = str_contains($place, 'resident') && !str_contains($place, 'non');
+            $isNonResident = str_contains($place, 'non-resident') || str_contains($place, 'non resident');
+
+            if ($isDirect) {
+                if ($isResident)    $maternal['directResident']++;
+                if ($isNonResident) $maternal['directNonResident']++;
+            }
+            if ($isIndirect) {
+                if ($isResident)    $maternal['indirectResident']++;
+                if ($isNonResident) $maternal['indirectNonResident']++;
+            }
+        }
+
+        $maternal['directTotal']   = $maternal['directResident']   + $maternal['directNonResident'];
+        $maternal['indirectTotal'] = $maternal['indirectResident']  + $maternal['indirectNonResident'];
+        $maternal['total']         = $maternal['directTotal'] + $maternal['indirectTotal'];
+
+        // ── Part I.2  Infant Mortality ──────────────────────────────────────────
+        $infantDeaths = InfantDeath::with('householdProfile')
+            ->whereHas('householdProfile', function ($q) use ($location) {
+                $this->applyHouseholdLocationFilter($q, $location);
+            })
+            ->get()
+            ->filter(function ($d) use ($startOfSelected, $endOfSelected) {
+                $date = $this->parseDateOrNull($d->date_of_registration);
+                return $date && $date->between($startOfSelected, $endOfSelected);
+            });
+
+        $infant = ['male' => 0, 'female' => 0, 'total' => 0];
+        foreach ($infantDeaths as $d) {
+            $infant['total']++;
+            if ($sk = $this->sexKey($d->sex)) {
+                $infant[$sk]++;
+            }
+        }
+
+        // ── Part II  Natality ────────────────────────────────────────────────────
+        // Load intrapartum records in the period, joining to maternal_care_records
+        // so we can compute the mother's age at delivery and read gravidaPara.
+        $intrapartumRecords = IntrapartumRecord::with('maternalCareRecord')
+            ->whereHas('maternalCareRecord.householdProfile', function ($q) use ($location) {
+                $this->applyHouseholdLocationFilter($q, $location);
+            })
+            ->get()
+            ->filter(function ($ip) use ($startOfSelected, $endOfSelected) {
+                $date = $this->parseDateOrNull($ip->deliveryDate);
+                return $date && $date->between($startOfSelected, $endOfSelected);
+            });
+
+        $liveBirths = 0;
+        $adolescent       = ['lt10' => 0, '10-14' => 0, '15-19' => 0];
+        $repeatAdolescent = ['10-14' => 0, '15-19' => 0];
+
+        foreach ($intrapartumRecords as $ip) {
+            // Exclude fetal deaths and abortions from live-birth count
+            $outcome = strtolower((string) ($ip->deliveryOutcome ?? ''));
+            $isFetal    = str_contains($outcome, 'fetal death') || str_contains($outcome, 'fd -');
+            $isAbortion = str_contains($outcome, 'abortion')    || str_contains($outcome, 'ab -');
+            if ($isFetal || $isAbortion) {
+                continue;
+            }
+
+            $liveBirths++;
+
+            $mcr = $ip->maternalCareRecord;
+            if (!$mcr) {
+                continue;
+            }
+
+            $deliveryCarbon  = $this->parseDateOrNull($ip->deliveryDate);
+            $birthDateCarbon = $this->parseDateOrNull($mcr->birthDate);
+            if (!$deliveryCarbon || !$birthDateCarbon) {
+                continue;
+            }
+
+            $ageAtDelivery = (int) $birthDateCarbon->diffInYears($deliveryCarbon);
+
+            // Adolescent birth age buckets (spec items 2a / 2b / 2c)
+            if ($ageAtDelivery < 10) {
+                $adolescent['lt10']++;
+            } elseif ($ageAtDelivery >= 10 && $ageAtDelivery <= 14) {
+                $adolescent['10-14']++;
+            } elseif ($ageAtDelivery >= 15 && $ageAtDelivery <= 19) {
+                $adolescent['15-19']++;
+            }
+
+            // Repeat adolescent births — gravida > 1 (spec items 3a / 3b)
+            if ($ageAtDelivery >= 10 && $ageAtDelivery <= 19) {
+                $gravida = 0;
+                if (!empty($mcr->gravidaPara)) {
+                    // gravidaPara is stored in formats like "G2P1", "G3P2", etc.
+                    if (preg_match('/[Gg](\d+)/', (string) $mcr->gravidaPara, $m)) {
+                        $gravida = (int) $m[1];
+                    }
+                }
+                if ($gravida > 1) {
+                    if ($ageAtDelivery >= 10 && $ageAtDelivery <= 14) {
+                        $repeatAdolescent['10-14']++;
+                    } elseif ($ageAtDelivery >= 15 && $ageAtDelivery <= 19) {
+                        $repeatAdolescent['15-19']++;
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'period'  => $period['periodMeta'],
+            'filters' => $location['codes'],
+            'data'    => [
+                'mortality' => [
+                    'maternal' => $maternal,
+                    'infant'   => $infant,
+                ],
+                'natality' => [
+                    'liveBirths'       => $liveBirths,
+                    'adolescent'       => $adolescent,
+                    'repeatAdolescent' => $repeatAdolescent,
+                ],
+            ],
+        ]);
+    }
+
     private function resolveReportPeriod(Request $request): array
     {
         $year = (int) $request->input('year', now()->year);

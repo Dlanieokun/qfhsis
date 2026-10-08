@@ -11,16 +11,19 @@ class MorbidityRecord extends Model
     use HasFactory;
 
     /**
-     * One row = one ICD code's counts, for one facility/user, for one reporting month.
-     * `report_month` is stored as 'YYYY-MM' (e.g. "2026-08") so it sorts and filters cleanly.
+     * One row = one disease's counts (icdCode + diseaseName), for one facility/user, for one
+     * reporting month. reportMonth is the month NAME (e.g. "August") and reportYear is "YYYY",
+     * matching the Android MorbidityRecord fields and the migration's camelCase columns.
      */
     protected $fillable = [
         'user_id',
-        'report_month',
+        'reportMonth',
+        'reportYear',
         'region',
         'province',
         'municipality',
         'barangay',
+        'diseaseName',
         'icdCode',
 
         'age0to6daysMale',

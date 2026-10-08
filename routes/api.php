@@ -48,6 +48,7 @@ Route::get('/oral-health/report', [PhoReportController::class, 'oralHealthCare']
 Route::get('/non-communicable-disease/report', [PhoReportController::class, 'nonCommunicableDisease']);
 Route::get('/environmental-health/report', [PhoReportController::class, 'environmentalHealth']);
 Route::get('/infectious-disease/report', [PhoReportController::class, 'infectiousDisease']);
+Route::get('/vital-statistics/report', [PhoReportController::class, 'vitalStatistics']);
 Route::get('/reports/m28paa', [M28PAAController::class, 'm28paaReport']);
 Route::get('/reports/filtered-m1-all', [A1AllProgramController::class, 'filteredM1AllReport']);
 Route::get('/reports/m2-morbidity', [MorbidityReportController::class, 'index']);

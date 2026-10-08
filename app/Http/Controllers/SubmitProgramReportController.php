@@ -5,16 +5,16 @@ namespace App\Http\Controllers;
 use App\Models\SubmitProgramReport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class SubmitProgramReportController extends Controller
 {
+    private const PRIVILEGED_ROLES = ['Administrator', 'DOH'];
+
     /**
-     * List submitted reports, optionally filtered by the query params
-     * used elsewhere in the app (form, year, month, region, province,
-     * municipality, barangay). Non-Administrator/DOH users only ever
-     * see their own submissions.
+     * List submitted reports, optionally filtered by form, year, month,
+     * region, province, municipality, barangay. Non-Administrator/DOH
+     * users only ever see their own submissions.
      */
     public function index(Request $request): JsonResponse
     {
@@ -22,27 +22,27 @@ class SubmitProgramReportController extends Controller
 
         $query = SubmitProgramReport::query()->with('user:id,name,email,role');
 
-        if (!in_array($user?->role, ['Administrator', 'DOH'], true)) {
+        if (!in_array($user?->role, self::PRIVILEGED_ROLES, true)) {
             $query->where('user_id', $user?->id);
         }
 
         if ($request->filled('form')) {
-            $query->where('form', $request->string('form'));
+            $query->where('form', (string) $request->input('form'));
         }
         if ($request->filled('year')) {
-            $query->where('year', $request->string('year'));
+            $query->where('year', (string) $request->input('year'));
         }
         if ($request->filled('month')) {
-            $query->where('month', $request->string('month'));
+            $query->where('month', str_pad((string) $request->input('month'), 2, '0', STR_PAD_LEFT));
         }
         if ($request->filled('region')) {
-            $query->where('region_code', $request->string('region'));
+            $query->where('region_code', (string) $request->input('region'));
         }
         if ($request->filled('province')) {
-            $query->where('province_code', $request->string('province'));
+            $query->where('province_code', (string) $request->input('province'));
         }
         if ($request->filled('municipality')) {
-            $query->where('municipality_code', $request->string('municipality'));
+            $query->where('municipality_code', (string) $request->input('municipality'));
         }
         if ($request->filled('barangay')) {
             $barangays = (array) $request->input('barangay');
@@ -59,57 +59,63 @@ class SubmitProgramReportController extends Controller
     }
 
     /**
-     * Store (or update, if the same user already submitted this form for
-     * this reporting period) a program report submission.
+     * Store a program report submission, or update it if the same user
+     * already submitted this form for this month/year.
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'form' => ['required', Rule::in(['m1', 'q1', 'm2', 'a1', 'mo'])],
-            'month' => ['required', 'string', 'size:2'],
-            'year' => ['required', 'string', 'size:4'],
-            'region_code' => ['nullable', 'string'],
-            'province_code' => ['nullable', 'string'],
-            'municipality_code' => ['nullable', 'string'],
-            'barangay_codes' => ['nullable', 'array'],
-            'barangay_codes.*' => ['string'],
-        ]);
-
-        // Trust the authenticated session for who's submitting rather than
-        // any user_id the client sends.
-        $userId = Auth::id();
-
-        if (!$userId) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
+        // Accept "1" as well as "01" for the month.
+        if ($request->filled('month')) {
+            $request->merge([
+                'month' => str_pad((string) $request->input('month'), 2, '0', STR_PAD_LEFT),
+            ]);
         }
 
+        $validated = $request->validate([
+            'form'              => ['required', 'string', Rule::in(['m1', 'q1', 'm2', 'a1', 'mo'])],
+            'month'             => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])$/'],
+            'year'              => ['required', 'string', 'regex:/^\d{4}$/'],
+            'region_code'       => ['nullable', 'string', 'max:255'],
+            'province_code'     => ['nullable', 'string', 'max:255'],
+            'municipality_code' => ['nullable', 'string', 'max:255'],
+            'barangay_codes'    => ['nullable', 'array'],
+            'barangay_codes.*'  => ['string'],
+        ]);
+
+        // Match exactly the unique index: user_id + form + month + year.
         $report = SubmitProgramReport::updateOrCreate(
             [
-                'user_id' => $userId,
-                'form' => $validated['form'],
-                'month' => $validated['month'],
-                'year' => $validated['year'],
+                'user_id' => $request->user()->id,
+                'form'    => $validated['form'],
+                'month'   => $validated['month'],
+                'year'    => $validated['year'],
             ],
             [
-                'region_code' => $validated['region_code'] ?? null,
-                'province_code' => $validated['province_code'] ?? null,
+                'region_code'       => $validated['region_code'] ?? null,
+                'province_code'     => $validated['province_code'] ?? null,
                 'municipality_code' => $validated['municipality_code'] ?? null,
-                'barangay_codes' => $validated['barangay_codes'] ?? [],
-                'status' => 'submitted',
+                'barangay_codes'    => $validated['barangay_codes'] ?? null,
+                'status'            => 'submitted', // never taken from the request
             ]
         );
 
-        return response()->json([
-            'message' => 'Report submitted successfully.',
-            'data' => $report,
-        ], 201);
+        $report->load('user:id,name,email,role');
+
+        return response()->json(
+            ['data' => $report],
+            $report->wasRecentlyCreated ? 201 : 200
+        );
     }
 
     /**
      * Show a single submission.
      */
-    public function show(SubmitProgramReport $submitProgramReport): JsonResponse
+    public function show(Request $request, SubmitProgramReport $submitProgramReport): JsonResponse
     {
+        if (!$this->canAccess($request, $submitProgramReport)) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
         $submitProgramReport->load('user:id,name,email,role');
 
         return response()->json(['data' => $submitProgramReport]);
@@ -120,17 +126,23 @@ class SubmitProgramReportController extends Controller
      */
     public function destroy(Request $request, SubmitProgramReport $submitProgramReport): JsonResponse
     {
-        $user = $request->user();
-
-        $isOwner = $submitProgramReport->user_id === $user?->id;
-        $isPrivileged = in_array($user?->role, ['Administrator', 'DOH'], true);
-
-        if (!$isOwner && !$isPrivileged) {
+        if (!$this->canAccess($request, $submitProgramReport)) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
         $submitProgramReport->delete();
 
         return response()->json(['message' => 'Report deleted.']);
+    }
+
+    /**
+     * Owner or Administrator/DOH.
+     */
+    private function canAccess(Request $request, SubmitProgramReport $report): bool
+    {
+        $user = $request->user();
+
+        return $report->user_id === $user?->id
+            || in_array($user?->role, self::PRIVILEGED_ROLES, true);
     }
 }
