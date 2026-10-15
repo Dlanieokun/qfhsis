@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('morbidity_records', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('cascade');
 
             // Reporting period — split to match the Android entity's reportMonth/reportYear
             // fields exactly, instead of the single 'report_month' string this table had.

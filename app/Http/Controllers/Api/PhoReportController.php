@@ -96,20 +96,21 @@ class PhoReportController extends Controller
 
             $method  = $methodDB[$item->methodUsed];
             $age     = $bracketsDB[$item->ageGroupCategory];
-            $regDate = Carbon::parse($item->registrationDate);
+            $regDate = $this->parseDateOrNull($item->registrationDate);
+            if (!$regDate) continue;
 
             // Earliest drop-out on/before the end of the selected month
             $dropoutAtEom = $item->dropOuts
-                ->map(fn ($d) => Carbon::parse($d->dropOutDate))
-                ->filter(fn ($d) => $d->between($startOfSelected, $endOfSelected))
+                ->map(fn ($d) => $this->parseDateOrNull($d->dropOutDate))
+                ->filter(fn ($d) => $d && $d->between($startOfSelected, $endOfSelected))
                 ->sort()
                 ->first();
             $isDropoutEom = $dropoutAtEom !== null;
 
             // Earliest drop-out strictly before the start of the selected month
             $dropoutAtBom = $item->dropOuts
-                ->map(fn ($d) => Carbon::parse($d->dropOutDate))
-                ->filter(fn ($d) => $d->lessThan($startOfSelected))
+                ->map(fn ($d) => $this->parseDateOrNull($d->dropOutDate))
+                ->filter(fn ($d) => $d && $d->lessThan($startOfSelected))
                 ->sort()
                 ->first();
             $isDropoutBom = $dropoutAtBom !== null;
@@ -303,11 +304,8 @@ class PhoReportController extends Controller
             if (empty($value)) {
                 return false;
             }
-            try {
-                return Carbon::parse($value)->between($startOfSelected, $endOfSelected);
-            } catch (\Exception $e) {
-                return false;
-            }
+            $d = $this->parseDateOrNull($value);
+            return $d ? $d->between($startOfSelected, $endOfSelected) : false;
         };
 
         foreach ($records as $record) {
@@ -2244,15 +2242,40 @@ class PhoReportController extends Controller
     }
 
     /**
-     * Safely parses a free-form date string (as stored across these tables) into a
+     * Safely parses a date string (as stored across these tables) into a
      * Carbon instance, or null if it's empty/unparsable.
+     *
+     * Dates are expected in MM-DD-YYYY format (e.g. 03-15-2026). This is parsed
+     * explicitly because PHP/Carbon::parse() treats dash-separated values as
+     * DD-MM-YYYY, which would silently swap day and month (04-05-2026 -> 4 May)
+     * or fail outright (03-15-2026). An optional trailing time is tolerated.
+     * Anything else (e.g. ISO YYYY-MM-DD from timestamps) falls back to Carbon::parse.
      */
-    private function parseDateOrNull(?string $value): ?Carbon
+    private function parseDateOrNull($value): ?Carbon
     {
+        if ($value instanceof Carbon) {
+            return $value;
+        }
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value);
+        }
         if (empty($value)) {
             return null;
         }
+        $value = trim((string) $value);
         try {
+            if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?/', $value, $m)) {
+                $date = Carbon::createFromFormat('m-d-Y', sprintf('%02d-%02d-%04d', $m[1], $m[2], $m[3]));
+                if ($date === false || $date->format('m-d-Y') !== sprintf('%02d-%02d-%04d', $m[1], $m[2], $m[3])) {
+                    return null; // invalid calendar date, e.g. 13-45-2026
+                }
+                $date = $date->startOfDay();
+                if (!empty($m[4])) {
+                    $t = array_map('intval', explode(':', $m[4]));
+                    $date->setTime($t[0], $t[1], $t[2] ?? 0);
+                }
+                return $date;
+            }
             return Carbon::parse($value);
         } catch (\Exception $e) {
             return null;

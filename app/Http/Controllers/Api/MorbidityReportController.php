@@ -313,6 +313,57 @@ class MorbidityReportController extends Controller
         return response()->json(['message' => 'Morbidity report saved.'], 201);
     }
 
+    public function storeMorbidity(Request $request): JsonResponse
+    {
+        $ageColumns = [];
+        foreach (self::AGE_GROUPS as [$maleCol, $femaleCol]) {
+            $ageColumns[] = $maleCol;
+            $ageColumns[] = $femaleCol;
+        }
+
+        $validated = $request->validate([
+            'reportMonth' => ['required', 'string'],
+            'reportYear' => ['required', 'digits:4'],
+            'region' => ['nullable', 'string'],
+            'province' => ['nullable', 'string'],
+            'municipality' => ['nullable', 'string'],
+            'barangay' => ['nullable', 'string'],
+            'rows' => ['required', 'array', 'min:1'],
+            'rows.*.icdCode' => ['required', 'string'],
+            'rows.*.diseaseName' => ['required', 'string'],
+            ...array_fill_keys(
+                array_map(fn ($col) => "rows.*.$col", $ageColumns),
+                ['nullable', 'integer', 'min:0']
+            ),
+        ]);
+
+        $user = $request->user();
+
+        DB::transaction(function () use ($validated, $ageColumns) {
+            foreach ($validated['rows'] as $row) {
+                $keyAttributes = [
+                    'reportMonth' => $validated['reportMonth'],
+                    'reportYear' => $validated['reportYear'],
+                    'region' => $validated['region'] ?? null,
+                    'province' => $validated['province'] ?? null,
+                    'municipality' => $validated['municipality'] ?? null,
+                    'barangay' => $validated['barangay'] ?? null,
+                    'icdCode' => $row['icdCode'],
+                    'diseaseName' => $row['diseaseName'],
+                ];
+
+                $counts = [];
+                foreach ($ageColumns as $col) {
+                    $counts[$col] = (int) ($row[$col] ?? 0);
+                }
+
+                MorbidityRecord::updateOrCreate($keyAttributes, $counts);
+            }
+        });
+
+        return response()->json(['message' => 'Morbidity report saved.'], 201);
+    }
+
     /**
      * DELETE /api/reports/m2-morbidity/{morbidityRecord}
      */

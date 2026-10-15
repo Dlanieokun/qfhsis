@@ -53,6 +53,7 @@ Route::get('/reports/m28paa', [M28PAAController::class, 'm28paaReport']);
 Route::get('/reports/filtered-m1-all', [A1AllProgramController::class, 'filteredM1AllReport']);
 Route::get('/reports/m2-morbidity', [MorbidityReportController::class, 'index']);
 Route::post('/reports/m2-morbidity', [MorbidityReportController::class, 'store']);
+Route::post('/reports/morbidity', [MorbidityReportController::class, 'storeMorbidity']);
 Route::delete('/reports/m2-morbidity/{morbidityRecord}', [MorbidityReportController::class, 'destroy']);
 
 
