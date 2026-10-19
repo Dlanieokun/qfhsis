@@ -48,6 +48,7 @@
         "laravel-vite-plugin": "^1.0",
         "lucide-react": "^0.475.0",
         "phil-reg-prov-mun-brgy": "^1.1.0",
+        "qrcode.react": "^4.2.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "tailwind-merge": "^3.0.1",

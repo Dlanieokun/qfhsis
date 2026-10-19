@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, usePage, useForm } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { QRCodeSVG } from 'qrcode.react';
 import {
     LayoutDashboard,
     FileText,
@@ -15,6 +16,8 @@ import {
     Lock,
     Eye,
     EyeOff,
+    Smartphone,
+    Download,
 } from 'lucide-react';
 import { type SharedData } from '@/types';
 
@@ -26,6 +29,9 @@ const NAV_ITEMS = [
     { label: 'Account Approvals', href: '/qfhsis/public/fhsis/approvals',         icon: ClipboardCheck },
     { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
 ];
+
+// Public URL path of the APK (file lives in laravel's public/downloads/qfhsis.apk)
+const APK_PATH = '/qfhsis/public/downloads/qfhsis.apk';
 
 // Which nav labels each role can see.
 // Roles not listed here (e.g. admin) still see every item.
@@ -42,6 +48,7 @@ export default function AppSidebar() {
 
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [isQrModalOpen, setIsQrModalOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
     // Password visibility states
@@ -87,6 +94,8 @@ export default function AppSidebar() {
     function isActive(href: string) {
         return currentPath === href || currentPath.startsWith(href + '/');
     }
+
+    const apkUrl = typeof window !== 'undefined' ? `${window.location.origin}${APK_PATH}` : APK_PATH;
 
     const user = auth?.user;
 
@@ -182,6 +191,18 @@ export default function AppSidebar() {
                             </motion.div>
                         );
                     })}
+
+                    {/* Download Application (opens QR modal) */}
+                    <motion.div variants={navItemVariant}>
+                        <button
+                            type="button"
+                            onClick={() => setIsQrModalOpen(true)}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-white/70 transition-all duration-200 hover:scale-[1.02] hover:bg-white/10 hover:text-white"
+                        >
+                            <Smartphone className="h-4 w-4 shrink-0" />
+                            Download Application
+                        </button>
+                    </motion.div>
                 </motion.nav>
                 
                 {/* ── Province Footer ──────────────────────────────────────── */}
@@ -273,6 +294,62 @@ export default function AppSidebar() {
                 </motion.div>
 
             </motion.aside>
+
+
+            {/* ── Download Application QR Modal ────────────────────────────── */}
+            <AnimatePresence>
+                {isQrModalOpen && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                        onClick={() => setIsQrModalOpen(false)}
+                    >
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                            transition={{ type: 'spring', duration: 0.3 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-white/20 bg-[#0f2d6b] p-6 text-white shadow-2xl"
+                        >
+                            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10">
+                                        <Smartphone className="h-5 w-5 text-white/90" />
+                                    </div>
+                                    <h3 className="text-lg font-semibold text-white">Download Application</h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsQrModalOpen(false)}
+                                    className="rounded-lg p-1 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                                >
+                                    <X className="h-5 w-5" />
+                                </button>
+                            </div>
+
+                            <div className="mt-5 flex flex-col items-center gap-4">
+                                <div className="rounded-xl bg-white p-3 shadow-lg">
+                                    <QRCodeSVG value={apkUrl} size={200} level="M" />
+                                </div>
+                                <p className="text-center text-sm text-white/80">
+                                    Scan this QR code with your Android phone to download the QFHSIS app.
+                                </p>
+                                <a
+                                    href={APK_PATH}
+                                    download
+                                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-all hover:bg-emerald-500"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Download APK
+                                </a>
+                                <p className="text-center text-xs text-white/50">
+                                    You may need to allow "Install unknown apps" on your phone.
+                                </p>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
 
             {/* ── Change Password Modal ────────────────────────────────────── */}
             <AnimatePresence>
