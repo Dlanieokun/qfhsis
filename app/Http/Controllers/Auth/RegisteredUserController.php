@@ -30,41 +30,43 @@ class RegisteredUserController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'name'              => 'required|string|max:255',
+            'username'          => 'required|string|max:255|alpha_dash|unique:' . User::class,
+            'email'             => 'required|string|lowercase|email|max:255|unique:' . User::class,
+            'password'          => ['required', 'confirmed', Rules\Password::defaults()],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
-            'region' => ['required', 'string', 'max:255'],
-            'region_code' => ['required', 'string', 'max:255'],
-            'province' => ['required', 'string', 'max:255'],
-            'province_code' => ['required', 'string', 'max:255'],
-            'municipality' => ['required', 'string', 'max:255'],
+            'region'            => ['required', 'string', 'max:255'],
+            'region_code'       => ['required', 'string', 'max:255'],
+            'province'          => ['required', 'string', 'max:255'],
+            'province_code'     => ['required', 'string', 'max:255'],
+            'municipality'      => ['required', 'string', 'max:255'],
             'municipality_code' => ['required', 'string', 'max:255'],
-            'barangay' => ['required', 'array', 'min:1'],
-            'barangay.*' => ['string'],
-            'barangay_codes' => ['required', 'array', 'min:1'],
-            'barangay_codes.*' => ['string'],
+            'barangay'          => ['required', 'array', 'min:1'],
+            'barangay.*'        => ['string'],
+            'barangay_codes'    => ['required', 'array', 'min:1'],
+            'barangay_codes.*'  => ['string'],
         ]);
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name'              => $request->name,
+            'username'          => $request->username,
+            'email'             => $request->email,
+            'password'          => Hash::make($request->password),
             // Role and status are never taken from the request — letting a
             // self-registering user pick their own role would be a privilege
             // escalation. New accounts start at the lowest-privilege role and
             // Inactive; an Administrator approves them on the Account Approvals page.
-            'role' => 'BHW',
-            'status' => 'Inactive',
+            'role'              => 'BHW',
+            'status'            => 'Inactive',
             'assigned_facility' => $request->assigned_facility,
-            'region' => $request->region,
-            'region_code' => $request->region_code,
-            'province' => $request->province,
-            'province_code' => $request->province_code,
-            'municipality' => $request->municipality,
+            'region'            => $request->region,
+            'region_code'       => $request->region_code,
+            'province'          => $request->province,
+            'province_code'     => $request->province_code,
+            'municipality'      => $request->municipality,
             'municipality_code' => $request->municipality_code,
-            'barangay' => $request->barangay,
-            'barangay_codes' => $request->barangay_codes,
+            'barangay'          => $request->barangay,
+            'barangay_codes'    => $request->barangay_codes,
         ]);
 
         event(new Registered($user));

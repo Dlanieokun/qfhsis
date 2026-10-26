@@ -1,6 +1,6 @@
 import { Head, useForm } from '@inertiajs/react';
 import axios from 'axios';
-import { Building2, LoaderCircle, Lock, Mail, MapPin, Phone, ShieldCheck, Stethoscope, User } from 'lucide-react';
+import { AtSign, Building2, LoaderCircle, Lock, Mail, MapPin, Phone, ShieldCheck, Stethoscope, User } from 'lucide-react';
 import { FormEventHandler, useEffect, useState } from 'react';
 
 import InputError from '@/components/input-error';
@@ -15,6 +15,7 @@ const LOCATION_API = '/qfhsis/public/api/locations';
 
 interface RegisterForm {
     name: string;
+    username: string;
     email: string;
     contact_number: number | '';
     password: string;
@@ -60,6 +61,7 @@ const labelClass = 'text-sm font-semibold text-slate-700';
 export default function Register() {
     const { data, setData, post, processing, errors, reset } = useForm<RegisterForm>({
         name: '',
+        username: '',
         email: '',
         contact_number: '',
         password: '',
@@ -237,7 +239,7 @@ export default function Register() {
 
                     <form className="space-y-6" onSubmit={submit}>
                         <div className="space-y-5">
-                            {/* Name */}
+                            {/* Full Name */}
                             <div className="grid gap-2 group">
                                 <Label htmlFor="name" className={labelClass}>
                                     Full name
@@ -263,6 +265,31 @@ export default function Register() {
                                 <InputError message={errors.name} />
                             </div>
 
+                            {/* Username */}
+                            <div className="grid gap-2 group">
+                                <Label htmlFor="username" className={labelClass}>
+                                    Username
+                                </Label>
+                                <div className="relative">
+                                    <div className={iconWrapClass}>
+                                        <AtSign className="h-5 w-5" />
+                                    </div>
+                                    <Input
+                                        id="username"
+                                        type="text"
+                                        required
+                                        tabIndex={2}
+                                        autoComplete="username"
+                                        value={data.username}
+                                        onChange={(e) => setData('username', e.target.value)}
+                                        disabled={processing}
+                                        placeholder="juandelacruz"
+                                        className={`pl-11 ${inputClass}`}
+                                    />
+                                </div>
+                                <InputError message={errors.username} />
+                            </div>
+
                             {/* Email */}
                             <div className="grid gap-2 group">
                                 <Label htmlFor="email" className={labelClass}>
@@ -276,7 +303,7 @@ export default function Register() {
                                         id="email"
                                         type="email"
                                         required
-                                        tabIndex={2}
+                                        tabIndex={3}
                                         autoComplete="email"
                                         value={data.email}
                                         onChange={(e) => setData('email', e.target.value)}
@@ -300,7 +327,7 @@ export default function Register() {
                                     <Input
                                         id="contact_number"
                                         type="number"
-                                        tabIndex={3}
+                                        tabIndex={4}
                                         autoComplete="tel"
                                         value={data.contact_number}
                                         onChange={(e) => setData('contact_number', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
@@ -326,7 +353,7 @@ export default function Register() {
                                             id="password"
                                             type="password"
                                             required
-                                            tabIndex={4}
+                                            tabIndex={5}
                                             autoComplete="new-password"
                                             value={data.password}
                                             onChange={(e) => setData('password', e.target.value)}
@@ -350,7 +377,7 @@ export default function Register() {
                                             id="password_confirmation"
                                             type="password"
                                             required
-                                            tabIndex={5}
+                                            tabIndex={6}
                                             autoComplete="new-password"
                                             value={data.password_confirmation}
                                             onChange={(e) => setData('password_confirmation', e.target.value)}
@@ -374,7 +401,7 @@ export default function Register() {
                                     </div>
                                     <select
                                         id="role"
-                                        tabIndex={6}
+                                        tabIndex={7}
                                         value={data.role}
                                         onChange={(e) => setData('role', e.target.value as RegisterForm['role'])}
                                         disabled={processing}
@@ -401,7 +428,7 @@ export default function Register() {
                                     <Input
                                         id="assigned_facility"
                                         type="text"
-                                        tabIndex={7}
+                                        tabIndex={8}
                                         value={data.assigned_facility}
                                         onChange={(e) => setData('assigned_facility', e.target.value)}
                                         disabled={processing}
@@ -427,7 +454,7 @@ export default function Register() {
                                     </Label>
                                     <select
                                         id="region_code"
-                                        tabIndex={8}
+                                        tabIndex={9}
                                         value={data.region_code}
                                         onChange={handleRegionChange}
                                         disabled={processing}
@@ -449,7 +476,7 @@ export default function Register() {
                                     </Label>
                                     <select
                                         id="province_code"
-                                        tabIndex={9}
+                                        tabIndex={10}
                                         value={data.province_code}
                                         onChange={handleProvinceChange}
                                         disabled={processing || !data.region_code}
@@ -471,7 +498,7 @@ export default function Register() {
                                     </Label>
                                     <select
                                         id="municipality_code"
-                                        tabIndex={10}
+                                        tabIndex={11}
                                         value={data.municipality_code}
                                         onChange={handleMunicipalityChange}
                                         disabled={processing || !data.province_code}
@@ -556,7 +583,7 @@ export default function Register() {
                         <Button
                             type="submit"
                             className="w-full h-12 text-base font-semibold shadow-md bg-blue-600 hover:bg-blue-700 text-white transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
-                            tabIndex={11}
+                            tabIndex={12}
                             disabled={processing}
                         >
                             {processing ? <LoaderCircle className="mr-2 h-5 w-5 animate-spin" /> : null}
@@ -565,7 +592,7 @@ export default function Register() {
 
                         <div className="text-center text-sm text-slate-500">
                             Already have an account?{' '}
-                            <TextLink href={route('login')} tabIndex={12} className="font-medium text-blue-600 hover:text-blue-700">
+                            <TextLink href={route('login')} tabIndex={13} className="font-medium text-blue-600 hover:text-blue-700">
                                 Log in
                             </TextLink>
                         </div>

@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
         // Default system administrator
         $this->upsertUser([
             'name'              => 'Ronald Mercado',
+            'username'          => 'ronald_mercado',
             'email'             => 'admin@fhsis.gov.ph',
             'password'          => 'password123',
             'role'              => 'Administrator',
@@ -32,6 +33,7 @@ class DatabaseSeeder extends Seeder
         // Test account: barangay-level staff
         $this->upsertUser([
             'name'              => 'RHU Staff User',
+            'username'          => 'rhu_staff',
             'email'             => 'staff@fhsis.gov.ph',
             'password'          => 'password123',
             'role'              => 'BHW',
@@ -50,6 +52,7 @@ class DatabaseSeeder extends Seeder
 
         $row = [
             'name'              => $attrs['name'],
+            'username'          => $attrs['username'] ?? null,
             'password'          => Hash::make($attrs['password']),
             'role'              => $attrs['role'],
             'status'            => $attrs['status'],

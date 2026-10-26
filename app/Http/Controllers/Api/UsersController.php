@@ -17,32 +17,44 @@ use Illuminate\Support\Facades\Log;
 class UsersController extends Controller
 {
     /**
-     * Authenticate Android App Client and Issue Sanctum Bearer Token
+     * Authenticate Android App Client and Issue Sanctum Bearer Token.
+     * Accepts either a username or an email address in the 'login' field.
+     * For backwards-compatibility the old 'email' key is also accepted and
+     * treated as an email address automatically.
      */
     public function login(Request $request)
     {
-        // 1. Validate incoming parameters
+        // 1. Validate incoming parameters.
+        //    Accept either the new 'login' key or the legacy 'email' key so
+        //    existing Android clients keep working without an app update.
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'login'    => 'required_without:email|nullable|string',
+            'email'    => 'required_without:login|nullable|string',
             'password' => 'required|string',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'status' => 'error',
+                'status'  => 'error',
                 'message' => 'Validation constraints failed.',
-                'errors' => $validator->errors()
+                'errors'  => $validator->errors()
             ], 422);
         }
 
-        // 2. Locate the entity record
-        $user = User::where('email', $request->email)->first();
+        // 2. Resolve the login identifier — prefer 'login', fall back to 'email'.
+        $loginValue = strtolower(trim($request->input('login') ?? $request->input('email')));
+        $isEmail    = str_contains($loginValue, '@');
 
-        // 3. Verify user status and matching password bounds
+        // 3. Locate the entity record by email or username.
+        $user = $isEmail
+            ? User::where('email', $loginValue)->first()
+            : User::where('username', $loginValue)->first();
+
+        // 4. Verify user status and matching password bounds
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'Invalid email or password credentials.'
+                'status'  => 'error',
+                'message' => 'Invalid credentials. Check your username/email and password.'
             ], 401);
         }
 
@@ -66,10 +78,11 @@ class UsersController extends Controller
             'access_token' => $token,
             'token_type' => 'Bearer',
             'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
+                'id'       => $user->id,
+                'name'     => $user->name,
+                'username' => $user->username,
+                'email'    => $user->email,
+                'role'     => $user->role,
                 'status' => $user->status,
                 'assigned_facility' => $user->assigned_facility,
                 'barangay' => $user->barangay,

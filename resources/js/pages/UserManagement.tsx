@@ -2,22 +2,23 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import axios from 'axios';
-import { 
-    Edit2, Mail, MapPin, Phone, Plus, Search, 
-    ShieldAlert, ShieldCheck, Trash2, 
-    UserCheck, UserMinus, Users, X 
+import {
+    AtSign, Edit2, Mail, MapPin, Phone, Plus, Search,
+    ShieldAlert, ShieldCheck, Trash2,
+    UserCheck, UserMinus, Users, X
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 interface User {
     id: number;
     name: string;
+    username?: string;
     email: string;
     contact_number?: number | null;
     role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH';
     status: 'Active' | 'Inactive';
     assigned_facility?: string;
-    
+
     barangay?: string[] | string;
     barangay_codes?: string[] | string;
     municipality?: string;
@@ -26,7 +27,7 @@ interface User {
     province_code?: string;
     region?: string;
     region_code?: string;
-    
+
     created_at: string;
 }
 
@@ -76,6 +77,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
 
     const { data, setData, post, put, processing, errors, reset, clearErrors } = useForm({
         name: '',
+        username: '',
         email: '',
         contact_number: '' as number | '',
         role: 'Public Health Nurse' as User['role'],
@@ -103,10 +105,10 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const openCreateModal = () => {
         setEditingUser(null);
         clearErrors();
-        
+
         let defaultRegCode = '', defaultRegDesc = '';
         const reg = regions.find(r => r.regDesc?.includes('REGION VIII'));
-        
+
         if (reg && reg.regCode) {
             defaultRegCode = reg.regCode;
             defaultRegDesc = reg.regDesc;
@@ -114,6 +116,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
 
         setData({
             name: '',
+            username: '',
             email: '',
             contact_number: '',
             role: 'Public Health Nurse',
@@ -128,7 +131,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             barangay: [],
             barangay_codes: [],
         });
-        
+
         setBarangays([]);
         setIsModalOpen(true);
 
@@ -149,9 +152,10 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const openEditModal = (user: User) => {
         setEditingUser(user);
         clearErrors();
-        
+
         setData({
             name: user.name || '',
+            username: user.username || '',
             email: user.email || '',
             contact_number: user.contact_number ?? '',
             role: user.role,
@@ -166,7 +170,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             barangay: parseArray(user.barangay),
             barangay_codes: parseArray(user.barangay_codes),
         });
-        
+
         setIsModalOpen(true);
 
         if (user.region_code) {
@@ -214,14 +218,14 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const handleRegionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         const reg = regions.find(r => r.regCode === code);
-        
-        setData(d => ({ 
-            ...d, 
-            region_code: code, 
-            region: reg?.regDesc || '', 
-            province_code: '', province: '', 
-            municipality_code: '', municipality: '', 
-            barangay_codes: [], barangay: [] 
+
+        setData(d => ({
+            ...d,
+            region_code: code,
+            region: reg?.regDesc || '',
+            province_code: '', province: '',
+            municipality_code: '', municipality: '',
+            barangay_codes: [], barangay: []
         }));
 
         if (code) {
@@ -239,13 +243,13 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const handleProvinceChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         const prov = provinces.find(p => p.provCode === code);
-        
-        setData(d => ({ 
-            ...d, 
-            province_code: code, 
-            province: prov?.provDesc || '', 
-            municipality_code: '', municipality: '', 
-            barangay_codes: [], barangay: [] 
+
+        setData(d => ({
+            ...d,
+            province_code: code,
+            province: prov?.provDesc || '',
+            municipality_code: '', municipality: '',
+            barangay_codes: [], barangay: []
         }));
 
         if (code) {
@@ -261,12 +265,12 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const handleMunicipalityChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         const mun = municipalities.find(m => m.citymunCode === code);
-        
-        setData(d => ({ 
-            ...d, 
-            municipality_code: code, 
-            municipality: mun?.citymunDesc || '', 
-            barangay_codes: [], barangay: [] 
+
+        setData(d => ({
+            ...d,
+            municipality_code: code,
+            municipality: mun?.citymunDesc || '',
+            barangay_codes: [], barangay: []
         }));
 
         if (code) {
@@ -280,7 +284,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const handleBarangayCheckboxChange = (brgyCode: string, brgyDesc: string, isChecked: boolean) => {
         let updatedCodes = [...(data.barangay_codes || [])];
         let updatedDescs = [...(data.barangay || [])];
-        
+
         if (isChecked) {
             if (!updatedCodes.includes(brgyCode)) {
                 updatedCodes.push(brgyCode);
@@ -290,7 +294,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             updatedCodes = updatedCodes.filter(c => c !== brgyCode);
             updatedDescs = updatedDescs.filter(d => d !== brgyDesc);
         }
-        
+
         setData(d => ({ ...d, barangay_codes: updatedCodes, barangay: updatedDescs }));
     };
 
@@ -348,7 +352,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                     <form onSubmit={handleSearch} className="relative flex-1 max-w-md w-full">
                         <input
                             type="text"
-                            placeholder="Search name, email, facility, or locality registry..."
+                            placeholder="Search name, username, email, facility, or locality registry..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition"
@@ -389,6 +393,12 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                                         </div>
                                                         <div>
                                                             <p className="font-semibold text-slate-900 text-sm">{user.name}</p>
+                                                            {user.username && (
+                                                                <p className="text-slate-400 flex items-center gap-1 mt-0.5">
+                                                                    <AtSign className="w-3 h-3" />
+                                                                    {user.username}
+                                                                </p>
+                                                            )}
                                                             <p className="text-slate-400 flex items-center gap-1 mt-0.5">
                                                                 <Mail className="w-3 h-3" />
                                                                 {user.email}
@@ -455,7 +465,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                 {isModalOpen && (
                     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl border border-slate-100 shadow-xl w-full max-w-lg overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
-                            
+
                             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -471,6 +481,8 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                             </div>
 
                             <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[calc(100vh-160px)] overflow-y-auto">
+
+                                {/* Personnel Name */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Personnel Name</label>
                                     <input
@@ -484,6 +496,26 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     {errors.name && <p className="text-rose-600 text-xs mt-0.5">{errors.name}</p>}
                                 </div>
 
+                                {/* Username */}
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Username</label>
+                                    <div className="relative">
+                                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                                            <AtSign className="w-4 h-4" />
+                                        </span>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={data.username}
+                                            onChange={(e) => setData('username', e.target.value)}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+                                            placeholder="eleanor_vance"
+                                        />
+                                    </div>
+                                    {errors.username && <p className="text-rose-600 text-xs mt-0.5">{errors.username}</p>}
+                                </div>
+
+                                {/* Email */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Email Destination Registry</label>
                                     <input
@@ -497,6 +529,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     {errors.email && <p className="text-rose-600 text-xs mt-0.5">{errors.email}</p>}
                                 </div>
 
+                                {/* Contact Number */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Contact Number</label>
                                     <input
@@ -509,6 +542,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     {errors.contact_number && <p className="text-rose-600 text-xs mt-0.5">{errors.contact_number}</p>}
                                 </div>
 
+                                {/* Role + Status */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">System Role</label>
@@ -539,6 +573,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     </div>
                                 </div>
 
+                                {/* Assigned Health Facility */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Assigned Health Facility</label>
                                     <input
@@ -551,15 +586,16 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     {errors.assigned_facility && <p className="text-rose-600 text-xs mt-0.5">{errors.assigned_facility}</p>}
                                 </div>
 
+                                {/* Location */}
                                 <div className="pt-2 border-t border-slate-100">
                                     <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-3">Regional Catchment Jurisdiction</span>
-                                    
+
                                     <div className="grid grid-cols-2 gap-4">
-                                        
+
                                         <div className="space-y-1 col-span-2 sm:col-span-1">
                                             <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Region</label>
                                             <select
-                                                value={data.region_code} 
+                                                value={data.region_code}
                                                 onChange={handleRegionChange}
                                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                                             >
@@ -602,7 +638,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                             </select>
                                             {errors.municipality_code && <p className="text-rose-600 text-xs mt-0.5">{errors.municipality_code}</p>}
                                         </div>
-                                        
+
                                         <div className="space-y-1 col-span-2">
                                             <div className="flex justify-between items-end mb-1">
                                                 <label className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2">
@@ -614,15 +650,15 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
 
                                                 {barangays.length > 0 && (
                                                     <div className="flex gap-3 text-[11px] font-medium">
-                                                        <button 
-                                                            type="button" 
+                                                        <button
+                                                            type="button"
                                                             onClick={handleSelectAllBarangays}
                                                             className="text-blue-600 hover:text-blue-800 transition"
                                                         >
                                                             Select All
                                                         </button>
-                                                        <button 
-                                                            type="button" 
+                                                        <button
+                                                            type="button"
                                                             onClick={handleClearAllBarangays}
                                                             className="text-slate-500 hover:text-slate-800 transition"
                                                         >
@@ -631,14 +667,14 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                                     </div>
                                                 )}
                                             </div>
-                                            
+
                                             <div className={`w-full bg-slate-50 border border-slate-200 rounded-xl p-2 max-h-[160px] overflow-y-auto space-y-1 transition ${!data.municipality_code ? 'opacity-50 pointer-events-none' : ''}`}>
                                                 {barangays.length === 0 ? (
                                                     <p className="text-sm text-slate-400 italic p-2">Select a municipality first...</p>
                                                 ) : (
                                                     barangays.map((b) => (
-                                                        <label 
-                                                            key={b.brgyCode} 
+                                                        <label
+                                                            key={b.brgyCode}
                                                             className="flex items-center gap-3 p-2 hover:bg-blue-50/50 rounded-lg cursor-pointer transition select-none group"
                                                         >
                                                             <input

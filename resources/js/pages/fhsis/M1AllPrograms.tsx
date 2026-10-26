@@ -1148,6 +1148,21 @@ const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonComm
           })}
 
           <SubSectionHeader colSpan={10}>E7. Mental Health</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left" colSpan={5}>Indicator</Th>
+            <th colSpan={5} className="border border-gray-400 p-0 bg-gray-200">
+              <div className="grid grid-cols-4 border-b border-gray-400">
+                {['0-9 y/o', '10-19 y/o', '20-59 y/o', '60+ y/o'].map((age) => (
+                  <div key={age} className="border-r border-gray-400 last:border-r-0 text-center text-xs font-semibold px-1 py-1">{age}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-8">
+                {Array.from({ length: 4 }).flatMap((_, g) => ['M', 'F'].map((sx) => (
+                  <div key={`${g}-${sx}`} className="border-r border-gray-300 text-center text-xs font-semibold px-1 py-0.5">{sx}</div>
+                )))}
+              </div>
+            </th>
+          </tr>
           <tr>
             <Td className="pl-4" colSpan={5}>
               1. Individuals with mental health concern screened using the Mental Health Gap Action Programme (mhGAP)
@@ -2118,7 +2133,7 @@ export default function M1AllPrograms({
         </div>
         <div className="flex gap-2">
           <a
-            href="/qfhsis/public/fhsis/reports/export-m1-all"
+            href={`/qfhsis/public/fhsis/reports/export-m1-all?${buildReportQuery()}`}
             className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 transition text-sm inline-flex items-center"
           >
             Download M1 (.xlsx)

@@ -1,5 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
-import { LoaderCircle, Lock, Mail, Stethoscope, UserPlus } from 'lucide-react';
+import { LoaderCircle, Lock, Stethoscope, User, UserPlus } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
 import InputError from '@/components/input-error';
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 interface LoginForm {
-    email: string;
+    login: string;   // accepts username or email
     password: string;
     remember: boolean;
 }
@@ -22,7 +22,7 @@ interface LoginProps {
 
 export default function Login({ status, canResetPassword }: LoginProps) {
     const { data, setData, post, processing, errors, reset } = useForm<LoginForm>({
-        email: '',
+        login: '',
         password: '',
         remember: false,
     });
@@ -89,29 +89,29 @@ export default function Login({ status, canResetPassword }: LoginProps) {
 
                     <form className="space-y-6" onSubmit={submit}>
                         <div className="space-y-5">
-                            {/* Email Input Field */}
+                            {/* Username or Email Input Field */}
                             <div className="grid gap-2 group">
-                                <Label htmlFor="email" className="text-sm font-semibold text-slate-700">
-                                    Email address
+                                <Label htmlFor="login" className="text-sm font-semibold text-slate-700">
+                                    Username or email
                                 </Label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
-                                        <Mail className="h-5 w-5" />
+                                        <User className="h-5 w-5" />
                                     </div>
                                     <Input
-                                        id="email"
-                                        type="email"
+                                        id="login"
+                                        type="text"
                                         required
                                         autoFocus
                                         tabIndex={1}
-                                        autoComplete="email"
-                                        value={data.email}
-                                        onChange={(e) => setData('email', e.target.value)}
-                                        placeholder="name@example.com"
+                                        autoComplete="username"
+                                        value={data.login}
+                                        onChange={(e) => setData('login', e.target.value)}
+                                        placeholder="username or name@example.com"
                                         className="pl-11 h-12 bg-slate-50 border-slate-200 text-slate-900 transition-all duration-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-blue-600/20 focus-visible:border-blue-600 hover:border-slate-300"
                                     />
                                 </div>
-                                <InputError message={errors.email} />
+                                <InputError message={errors.login} />
                             </div>
 
                             {/* Password Input Field */}

@@ -10,13 +10,13 @@ import {
     Droplets,
     Eye,
     FileText,
+    Filter,
     Heart,
     HeartPulse,
     Leaf,
     Microscope,
     RotateCcw,
     ShieldPlus,
-    SlidersHorizontal,
     Smile,
     Stethoscope,
     Syringe,
@@ -24,7 +24,7 @@ import {
     Users,
     UsersRound,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -65,6 +65,15 @@ interface ReportProps {
     mental_health: { total_records: number; screened_mhgap: number };
     environmental_health: { total_records: number; safely_managed_water: number; safely_managed_sanitation: number };
 }
+
+// Parse JSON-encoded or plain arrays stored on the user model (e.g. barangay).
+const parseArray = (val: unknown): string[] => {
+    if (Array.isArray(val)) return val as string[];
+    if (typeof val === 'string') {
+        try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; }
+    }
+    return [];
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -204,12 +213,48 @@ export default function GeneralReport({
     mental_health,
     environmental_health,
 }: ReportProps) {
+    // ── Logged-in user's assigned address (auto-fills the filters) ─────────
+    // Same rules as M1AllPrograms: Administrator / DOH may change every
+    // location field; Public Health Nurses may change only the barangay;
+    // every other role (e.g. BHW) is locked to their assigned address.
+    const { auth } = usePage<SharedData>().props;
+    const user = auth?.user as any;
+    const role = String(user?.role ?? '');
+    const isBHW = role.toUpperCase() === 'BHW';
+    const isLocationLocked = !['Administrator', 'DOH'].includes(role);
+    const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(role);
+
+    const userRegion       = (user?.region       as string | null) || 'All';
+    const userProvince     = (user?.province     as string | null) || 'All';
+    const userMunicipality = (user?.municipality as string | null) || 'All';
+    const userBarangays    = parseArray(user?.barangay);
+
+    // True once the user has explicitly applied filters (query string present),
+    // so an Administrator who deliberately picks "All" is not forced back.
+    const hasExplicitFilters =
+        typeof window !== 'undefined' && window.location.search.length > 0;
+
+    const initial = (applied: string | undefined, assigned: string) => {
+        if (isLocationLocked) return assigned;
+        if (hasExplicitFilters) return applied || 'All';
+        return assigned;
+    };
+
+    const initialBarangay = (): string => {
+        const applied = filters.barangay && filters.barangay !== 'All' ? filters.barangay : '';
+        if (applied && (userBarangays.length === 0 || !isBarangayLocked || userBarangays.includes(applied))) {
+            return applied;
+        }
+        if (userBarangays.length === 1) return userBarangays[0];
+        return 'All';
+    };
+
     // ── Selected values (names sent to/from backend) ───────────────────────
-    const [selectedYear,         setSelectedYear]         = useState(filters.year         || String(CURRENT_YEAR));
-    const [selectedRegion,       setSelectedRegion]       = useState(filters.region       || 'All');
-    const [selectedProvince,     setSelectedProvince]     = useState(filters.province     || 'All');
-    const [selectedMunicipality, setSelectedMunicipality] = useState(filters.municipality || 'All');
-    const [selectedBarangay,     setSelectedBarangay]     = useState(filters.barangay     || 'All');
+    const [selectedYear,         setSelectedYear]         = useState(filters.year || String(CURRENT_YEAR));
+    const [selectedRegion,       setSelectedRegion]       = useState(initial(filters.region,       userRegion));
+    const [selectedProvince,     setSelectedProvince]     = useState(initial(filters.province,     userProvince));
+    const [selectedMunicipality, setSelectedMunicipality] = useState(initial(filters.municipality, userMunicipality));
+    const [selectedBarangay,     setSelectedBarangay]     = useState(initialBarangay());
 
     // ── Option lists ───────────────────────────────────────────────────────
     // Each list holds { code, name }.  code is only used to fetch the next level.
@@ -223,9 +268,29 @@ export default function GeneralReport({
     const [loadingProvinces,     setLoadingProvinces]     = useState(false);
     const [loadingMunicipalities,setLoadingMunicipalities]= useState(false);
     const [loadingBarangays,     setLoadingBarangays]     = useState(false);
+    const [processing,           setProcessing]           = useState(false);
 
-    const { auth } = usePage<SharedData>().props;
-    const isBHW = String(auth?.user?.role ?? '').toUpperCase() === 'BHW';
+    // Track whether staged (pending) selections differ from what's currently applied,
+    // so the Apply button only lights up when there is something new to submit.
+    const [pendingDirty, setPendingDirty] = useState(false);
+
+    // ── Auto-apply the pre-filled address on first visit ───────────────────
+    // When the page is opened without any filters, the dropdowns already show
+    // the user's address, so run the report for it once.
+    const autoApplied = useRef(false);
+    useEffect(() => {
+        if (autoApplied.current || hasExplicitFilters) return;
+        autoApplied.current = true;
+        const differs =
+            selectedRegion       !== (filters.region       || 'All') ||
+            selectedProvince     !== (filters.province     || 'All') ||
+            selectedMunicipality !== (filters.municipality || 'All') ||
+            selectedBarangay     !== (filters.barangay     || 'All');
+        if (differs) {
+            applyFilters(selectedYear, selectedRegion, selectedProvince, selectedMunicipality, selectedBarangay);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // ── 1. Load regions on mount ───────────────────────────────────────────
     useEffect(() => {
@@ -292,7 +357,12 @@ export default function GeneralReport({
         router.get(
             `${BASE_PATH}/fhsis/reports`,
             { year, region, province, municipality, barangay },
-            { preserveState: false },
+            {
+                preserveState: false,
+                preserveScroll: true,
+                onStart:  () => setProcessing(true),
+                onFinish: () => setProcessing(false),
+            },
         );
 
     const exportURL = (path: string, section: string) => {
@@ -310,101 +380,70 @@ export default function GeneralReport({
     const go = (section: string, path = '/fhsis/reports/export') =>
         () => { window.location.href = exportURL(path, section); };
 
-    // ── Region change — cascade fetch only, no navigation ─────────────────
+    // ── Staged filter changes — update local state only; report refreshes only
+    //    when the user explicitly clicks "Apply Filters".
+    const handleYearChange = (year: string) => {
+        setSelectedYear(year);
+        setPendingDirty(true);
+    };
+
     const handleRegionChange = (name: string) => {
         setSelectedRegion(name);
         setSelectedProvince('All');
         setSelectedMunicipality('All');
         setSelectedBarangay('All');
-        setProvinces([]);
-        setMunicipalities([]);
-        setBarangays([]);
-
-        if (name !== 'All') {
-            const match = regions.find((r) => r.name === name);
-            if (match) {
-                setLoadingProvinces(true);
-                fetchJSON<Array<{ provCode: string; provDesc: string }>>(
-                    `/api/locations/provinces/${match.code}`
-                )
-                    .then((data) => setProvinces(data.map((d) => ({ code: d.provCode, name: d.provDesc }))))
-                    .catch(() => {})
-                    .finally(() => setLoadingProvinces(false));
-            }
-        }
+        setPendingDirty(true);
     };
 
-    // ── Province change — cascade fetch only, no navigation ───────────────
     const handleProvinceChange = (name: string) => {
         setSelectedProvince(name);
         setSelectedMunicipality('All');
         setSelectedBarangay('All');
-        setMunicipalities([]);
-        setBarangays([]);
-
-        if (name !== 'All') {
-            const match = provinces.find((p) => p.name === name);
-            if (match) {
-                setLoadingMunicipalities(true);
-                fetchJSON<Array<{ citymunCode: string; citymunDesc: string }>>(
-                    `/api/locations/municipalities/${match.code}`
-                )
-                    .then((data) => setMunicipalities(data.map((d) => ({ code: d.citymunCode, name: d.citymunDesc }))))
-                    .catch(() => {})
-                    .finally(() => setLoadingMunicipalities(false));
-            }
-        }
+        setPendingDirty(true);
     };
 
-    // ── Municipality change — cascade fetch only, no navigation ───────────
     const handleMunicipalityChange = (name: string) => {
         setSelectedMunicipality(name);
         setSelectedBarangay('All');
-        setBarangays([]);
-
-        if (name !== 'All') {
-            const match = municipalities.find((m) => m.name === name);
-            if (match) {
-                setLoadingBarangays(true);
-                fetchJSON<Array<{ brgyDesc: string }>>(
-                    `/api/locations/barangays/${match.code}`
-                )
-                    .then((data) => setBarangays(data.map((d) => d.brgyDesc)))
-                    .catch(() => {})
-                    .finally(() => setLoadingBarangays(false));
-            }
-        }
+        setPendingDirty(true);
     };
 
-    // ── Barangay / Year change — update local state only ──────────────────
-    const handleBarangayChange = (name: string) => setSelectedBarangay(name);
-    const handleYearChange     = (year: string) => setSelectedYear(year);
+    const handleBarangayChange = (name: string) => {
+        setSelectedBarangay(name);
+        setPendingDirty(true);
+    };
 
-    // ── Apply button — navigate with current selections ────────────────────
-    const handleApply = () =>
+    const handleApplyFilters = () => {
+        setPendingDirty(false);
         applyFilters(selectedYear, selectedRegion, selectedProvince, selectedMunicipality, selectedBarangay);
-
-    // ── Reset button — clear all filters and navigate ─────────────────────
-    const handleReset = () => {
-        const y = String(CURRENT_YEAR);
-        setSelectedYear(y);
-        setSelectedRegion('All');
-        setSelectedProvince('All');
-        setSelectedMunicipality('All');
-        setSelectedBarangay('All');
-        setProvinces([]);
-        setMunicipalities([]);
-        setBarangays([]);
-        applyFilters(y, 'All', 'All', 'All', 'All');
     };
 
-    // ── Dirty check — true when pending state differs from applied filters ─
-    const isDirty =
-        selectedYear         !== (filters.year         || String(CURRENT_YEAR)) ||
-        selectedRegion       !== (filters.region       || 'All') ||
-        selectedProvince     !== (filters.province     || 'All') ||
-        selectedMunicipality !== (filters.municipality || 'All') ||
-        selectedBarangay     !== (filters.barangay     || 'All');
+    const handleReset = () => {
+        const y   = String(CURRENT_YEAR);
+        const reg = isLocationLocked ? userRegion       : 'All';
+        const pro = isLocationLocked ? userProvince     : 'All';
+        const mun = isLocationLocked ? userMunicipality : 'All';
+        const brg = userBarangays.length === 1 ? userBarangays[0] : 'All';
+        setSelectedYear(y);
+        setSelectedRegion(reg);
+        setSelectedProvince(pro);
+        setSelectedMunicipality(mun);
+        setSelectedBarangay(brg);
+        if (!isLocationLocked) {
+            setProvinces([]);
+            setMunicipalities([]);
+            setBarangays([]);
+        }
+        setPendingDirty(false);
+        applyFilters(y, reg, pro, mun, brg);
+    };
+
+    // Label describing the scope the cards below are currently showing.
+    const appliedLocation =
+        [filters.barangay, filters.municipality, filters.province, filters.region]
+            .filter((v) => v && v !== 'All')
+            .join(', ') || 'All locations';
+    const appliedYear = filters.year || String(CURRENT_YEAR);
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'FHSIS Dashboard', href: BASE_PATH + BREADCRUMB_PATHS.dashboard },
@@ -445,6 +484,7 @@ export default function GeneralReport({
                                     <select
                                         value={selectedYear}
                                         onChange={(e) => handleYearChange(e.target.value)}
+                                        disabled={processing}
                                         className={SELECT_CLS}
                                     >
                                         {YEARS.map((y) => (
@@ -459,6 +499,7 @@ export default function GeneralReport({
                                     <select
                                         value={selectedRegion}
                                         onChange={(e) => handleRegionChange(e.target.value)}
+                                        disabled={processing || isLocationLocked}
                                         className={SELECT_CLS}
                                     >
                                         <option value="All">All Regions</option>
@@ -473,7 +514,7 @@ export default function GeneralReport({
                                     <label className="text-xs text-slate-500 font-medium">Province</label>
                                     <select
                                         value={selectedProvince}
-                                        disabled={selectedRegion === 'All'}
+                                        disabled={processing || isLocationLocked || selectedRegion === 'All'}
                                         onChange={(e) => handleProvinceChange(e.target.value)}
                                         className={SELECT_CLS}
                                     >
@@ -491,7 +532,7 @@ export default function GeneralReport({
                                     <label className="text-xs text-slate-500 font-medium">Municipality / City</label>
                                     <select
                                         value={selectedMunicipality}
-                                        disabled={selectedProvince === 'All'}
+                                        disabled={processing || isLocationLocked || selectedProvince === 'All'}
                                         onChange={(e) => handleMunicipalityChange(e.target.value)}
                                         className={SELECT_CLS}
                                     >
@@ -509,14 +550,17 @@ export default function GeneralReport({
                                     <label className="text-xs text-slate-500 font-medium">Barangay</label>
                                     <select
                                         value={selectedBarangay}
-                                        disabled={selectedMunicipality === 'All'}
+                                        disabled={processing || (isBarangayLocked && userBarangays.length <= 1) || selectedMunicipality === 'All'}
                                         onChange={(e) => handleBarangayChange(e.target.value)}
                                         className={SELECT_CLS}
                                     >
                                         <option value="All">
                                             {loadingBarangays ? 'Loading…' : 'All Barangays'}
                                         </option>
-                                        {barangays.map((b) => (
+                                        {(isBarangayLocked && userBarangays.length > 0
+                                            ? barangays.filter((b) => userBarangays.includes(b))
+                                            : barangays
+                                        ).map((b) => (
                                             <option key={b} value={b}>{b}</option>
                                         ))}
                                     </select>
@@ -560,23 +604,37 @@ export default function GeneralReport({
                                     <button
                                         type="button"
                                         onClick={handleReset}
-                                        className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                        disabled={processing}
+                                        className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                         <RotateCcw className="w-3.5 h-3.5" />
                                         Reset
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={handleApply}
-                                        disabled={!isDirty}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors shadow-sm"
+                                        onClick={handleApplyFilters}
+                                        disabled={processing || !pendingDirty}
+                                        className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg transition-all
+                                            ${pendingDirty && !processing
+                                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-200'
+                                                : 'bg-blue-100 text-blue-400 cursor-not-allowed'
+                                            }`}
                                     >
-                                        <SlidersHorizontal className="w-3.5 h-3.5" />
-                                        Apply Filter
+                                        <Filter className="w-3.5 h-3.5" />
+                                        {processing ? 'Applying…' : 'Apply Filters'}
                                     </button>
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    {/* ── Scope of the figures currently displayed ───────────── */}
+                    <div className="flex flex-wrap items-center gap-2 mb-4 text-sm text-slate-600 print:hidden">
+                        <span className="font-medium text-slate-800">Showing:</span>
+                        <span>{appliedYear}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{appliedLocation}</span>
+                        {processing && <span className="text-blue-600 text-xs ml-2">Updating…</span>}
                     </div>
 
                     {/* ── Active filter badge (print-only) ─────────────────── */}
@@ -589,7 +647,7 @@ export default function GeneralReport({
                     </div>
 
                     {/* ── Cards grid ────────────────────────────────────────── */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 transition-opacity ${processing ? 'opacity-50 pointer-events-none' : ''}`}>
 
                         {/* ─── POPULATION & FAMILY ──────────────────────────── */}
                         <SectionHeading label="Population & Family" />

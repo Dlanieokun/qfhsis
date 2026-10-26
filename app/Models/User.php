@@ -20,6 +20,7 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'username',
         'email',
         'contact_number',
         'password',
@@ -33,7 +34,7 @@ class User extends Authenticatable
         'barangay_codes',
         'municipality_code',
         'province_code',
-        'region_code'
+        'region_code',
     ];
 
     /**
@@ -55,9 +56,9 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'barangay' => 'array',
-            'barangay_codes' => 'array',
+            'password'          => 'hashed',
+            'barangay'          => 'array',
+            'barangay_codes'    => 'array',
         ];
     }
 }

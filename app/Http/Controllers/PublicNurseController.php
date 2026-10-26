@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Api\PhoReportController;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -180,7 +181,10 @@ class PublicNurseController extends Controller
      */
     public function m1AllDownload(Request $request): StreamedResponse
     {
-        $data = app(PhoController::class)->getM1ReportData();
+        // Same source + same filters (month/year/region/province/
+        // municipality/barangay[]) as the on-screen M1 page, so the
+        // spreadsheet always matches what the user is looking at.
+        $data = $this->collectFilteredReportData($request);
 
         $templatePath = resource_path('templates/M1_All_Programs.xlsx');
         $spreadsheet = IOFactory::load($templatePath);
@@ -204,6 +208,41 @@ class PublicNurseController extends Controller
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Cache-Control' => 'max-age=0',
         ]);
+    }
+
+    /**
+     * Calls the same PhoReportController endpoints the M1 page fetches
+     * (/api/family-planning/report, /api/maternal-care/report, ...) with
+     * the current request's filters, and returns each endpoint's "data"
+     * payload keyed the way the fillSection*() methods expect.
+     */
+    private function collectFilteredReportData(Request $request): array
+    {
+        $api = app(PhoReportController::class);
+
+        $sources = [
+            'familyPlanning'         => 'familyPlaning',
+            'maternalCare'           => 'maternalCare',
+            'childCare'              => 'childCare',
+            'oralHealth'             => 'oralHealthCare',
+            'nonCommunicableDisease' => 'nonCommunicableDisease',
+            'environmentalHealth'    => 'environmentalHealth',
+            'infectiousDisease'      => 'infectiousDisease',
+        ];
+
+        $data = [];
+        foreach ($sources as $key => $method) {
+            $response = $api->{$method}($request);
+            $payload  = $response->getData(true);
+
+            if ($response->getStatusCode() >= 400 || ($payload['status'] ?? 'success') !== 'success') {
+                abort(500, "Could not build the M1 report: section '{$key}' failed to load.");
+            }
+
+            $data[$key] = $payload['data'] ?? [];
+        }
+
+        return $data;
     }
 
     /* =====================================================================
