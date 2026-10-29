@@ -34,8 +34,8 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 const ROLES = [
-    { value: 'Administrator', label: 'Administrator' },
     { value: 'DOH', label: 'DOH' },
+    { value: 'PHO', label: 'PHO' },
     { value: 'Doctor', label: 'Doctor' },
     { value: 'Public Health Nurse', label: 'Public Health Nurse' },
     { value: 'BHS', label: 'Midwife' },

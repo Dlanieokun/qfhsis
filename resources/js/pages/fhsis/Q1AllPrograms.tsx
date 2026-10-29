@@ -1586,9 +1586,13 @@ export default function Q1AllPrograms({
 
   // Administrators and DOH can change all location filters freely.
   // Public Health Nurses can change barangay but not region/province/municipality.
+  // BHS (Midwife) users can only pick among the barangays assigned to them
+  // (region/province/municipality stay locked, barangay list is restricted).
   // All other roles have every location field locked.
+  const isBHS = user?.role === 'BHS';
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
-  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse', 'BHS'].includes(user?.role ?? '');
+  const assignedBarangayCodes = useMemo(() => parseArray(user?.barangay_codes), [user?.barangay_codes]);
 
   const [activeSection, setActiveSection] = useState<string>('all');
 
@@ -1656,8 +1660,12 @@ export default function Q1AllPrograms({
   }, [selectedProvince, municipalities]);
 
   const filteredBarangays = useMemo(() => {
-    return barangays.filter(b => b.citymunCode === selectedMunicipality);
-  }, [selectedMunicipality, barangays]);
+    const inMunicipality = barangays.filter(b => b.citymunCode === selectedMunicipality);
+    // BHS users only see the barangays assigned to them.
+    return isBHS
+      ? inMunicipality.filter(b => assignedBarangayCodes.includes(b.brgyCode))
+      : inMunicipality;
+  }, [selectedMunicipality, barangays, isBHS, assignedBarangayCodes]);
 
   // ─── Filter -> API Query Builder (shared: quarter/year/region/province/municipality/barangay) ───
   const buildReportQuery = () => {
@@ -1672,8 +1680,13 @@ export default function Q1AllPrograms({
     if (selectedRegion) params.set('region', selectedRegion);
     if (selectedProvince) params.set('province', selectedProvince);
     if (selectedMunicipality) params.set('municipality', selectedMunicipality);
-    // Send every selected barangay code as barangay[]
-    selectedBarangays.forEach(code => params.append('barangay[]', code));
+    // Send every selected barangay code as barangay[].
+    // BHS users with nothing ticked fall back to ALL their assigned barangays,
+    // so an empty selection never widens the report to the whole municipality.
+    const barangayCodes = isBHS && selectedBarangays.length === 0
+      ? assignedBarangayCodes
+      : selectedBarangays;
+    barangayCodes.forEach(code => params.append('barangay[]', code));
 
     return params.toString();
   };

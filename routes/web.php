@@ -74,7 +74,16 @@ Route::middleware(['auth', 'verified', EnsureAccountIsActive::class])->group(fun
     Route::post('/fhsis/users', [UserController::class, 'store'])->name('users.store');
     Route::put('/fhsis/users/{user}', [UserController::class, 'update'])->name('users.update');
     Route::delete('/fhsis/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
-    
+    Route::post('/fhsis/users/{user}/allow', [UserController::class, 'allow'])->name('users.allow');
+    Route::post('/fhsis/users/{user}/revoke-allow', [UserController::class, 'revokeAllow'])->name('users.revokeAllow');
+    Route::post('/fhsis/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.resetPassword');
+
+    // Manage Users (address-scoped; for admins and users granted "allow")
+    Route::get('/fhsis/manage-users', [UserController::class, 'manage'])->name('users.manage');
+    Route::put('/fhsis/manage-users/{user}/role', [UserController::class, 'changeRole'])->name('users.manage.role');
+    Route::put('/fhsis/manage-users/{user}/status', [UserController::class, 'changeStatus'])->name('users.manage.status');
+    Route::post('/fhsis/manage-users/{user}/reset-password', [UserController::class, 'manageResetPassword'])->name('users.manage.resetPassword');
+
     Route::get('/fhsis/pho', [PhoController::class, 'pho'])->name('fhsis.pho');
     Route::get('/fhsis/public-nurse', [PublicNurseController::class, 'publicNurse'])->name('fhsis.publicNurse');
     Route::get('/fhsis/reports/export-m1-all', [PublicNurseController::class, 'm1AllDownload'])->name('fhsis.reports.m1AllDownload');

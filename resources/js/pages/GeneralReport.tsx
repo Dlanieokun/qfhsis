@@ -299,51 +299,51 @@ export default function GeneralReport({
             .catch(() => {});
     }, []);
 
-    // ── 2. When regions load AND a region was pre-selected (page reload),
-    //       find its code and load provinces automatically ─────────────────
+    // ── 2–4. Cascading address lists (same behaviour as M1AllPrograms) ─────
+    // Each list follows its parent's current selection, so choosing a value
+    // fills the next dropdown immediately and the selections survive Apply.
+    // Same /api/locations/* endpoints as before; values stay as names.
     useEffect(() => {
-        if (regions.length === 0 || selectedRegion === 'All') return;
-        const match = regions.find((r) => r.name === selectedRegion);
-        if (!match) return;
+        const match = selectedRegion === 'All' ? undefined : regions.find((r) => r.name === selectedRegion);
+        if (!match) { setProvinces([]); return; }
+        let cancelled = false;
         setLoadingProvinces(true);
         fetchJSON<Array<{ provCode: string; provDesc: string }>>(
             `/api/locations/provinces/${match.code}`
         )
-            .then((data) => setProvinces(data.map((d) => ({ code: d.provCode, name: d.provDesc }))))
+            .then((data) => { if (!cancelled) setProvinces(data.map((d) => ({ code: d.provCode, name: d.provDesc }))); })
             .catch(() => {})
-            .finally(() => setLoadingProvinces(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [regions]);
+            .finally(() => { if (!cancelled) setLoadingProvinces(false); });
+        return () => { cancelled = true; };
+    }, [regions, selectedRegion]);
 
-    // ── 3. When provinces load AND a province was pre-selected, load municipalities
     useEffect(() => {
-        if (provinces.length === 0 || selectedProvince === 'All') return;
-        const match = provinces.find((p) => p.name === selectedProvince);
-        if (!match) return;
+        const match = selectedProvince === 'All' ? undefined : provinces.find((p) => p.name === selectedProvince);
+        if (!match) { setMunicipalities([]); return; }
+        let cancelled = false;
         setLoadingMunicipalities(true);
         fetchJSON<Array<{ citymunCode: string; citymunDesc: string }>>(
             `/api/locations/municipalities/${match.code}`
         )
-            .then((data) => setMunicipalities(data.map((d) => ({ code: d.citymunCode, name: d.citymunDesc }))))
+            .then((data) => { if (!cancelled) setMunicipalities(data.map((d) => ({ code: d.citymunCode, name: d.citymunDesc }))); })
             .catch(() => {})
-            .finally(() => setLoadingMunicipalities(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [provinces]);
+            .finally(() => { if (!cancelled) setLoadingMunicipalities(false); });
+        return () => { cancelled = true; };
+    }, [provinces, selectedProvince]);
 
-    // ── 4. When municipalities load AND a municipality was pre-selected, load barangays
     useEffect(() => {
-        if (municipalities.length === 0 || selectedMunicipality === 'All') return;
-        const match = municipalities.find((m) => m.name === selectedMunicipality);
-        if (!match) return;
+        const match = selectedMunicipality === 'All' ? undefined : municipalities.find((m) => m.name === selectedMunicipality);
+        if (!match) { setBarangays([]); return; }
+        let cancelled = false;
         setLoadingBarangays(true);
         fetchJSON<Array<{ brgyDesc: string }>>(
             `/api/locations/barangays/${match.code}`
         )
-            .then((data) => setBarangays(data.map((d) => d.brgyDesc)))
+            .then((data) => { if (!cancelled) setBarangays(data.map((d) => d.brgyDesc)); })
             .catch(() => {})
-            .finally(() => setLoadingBarangays(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [municipalities]);
+            .finally(() => { if (!cancelled) setLoadingBarangays(false); });
+        return () => { cancelled = true; };
+    }, [municipalities, selectedMunicipality]);
 
     // ── Filter application ─────────────────────────────────────────────────
     // All values are *names* (matching household_profiles text columns).
@@ -358,7 +358,8 @@ export default function GeneralReport({
             `${BASE_PATH}/fhsis/reports`,
             { year, region, province, municipality, barangay },
             {
-                preserveState: false,
+                // Keep selections (like M1AllPrograms) — don't remount on Apply.
+                preserveState: true,
                 preserveScroll: true,
                 onStart:  () => setProcessing(true),
                 onFinish: () => setProcessing(false),
@@ -521,6 +522,9 @@ export default function GeneralReport({
                                         <option value="All">
                                             {loadingProvinces ? 'Loading…' : 'All Provinces'}
                                         </option>
+                                        {selectedProvince !== 'All' && !provinces.some((p) => p.name === selectedProvince) && (
+                                            <option value={selectedProvince}>{selectedProvince}</option>
+                                        )}
                                         {provinces.map((p) => (
                                             <option key={p.code} value={p.name}>{p.name}</option>
                                         ))}
@@ -539,6 +543,9 @@ export default function GeneralReport({
                                         <option value="All">
                                             {loadingMunicipalities ? 'Loading…' : 'All Municipalities'}
                                         </option>
+                                        {selectedMunicipality !== 'All' && !municipalities.some((m) => m.name === selectedMunicipality) && (
+                                            <option value={selectedMunicipality}>{selectedMunicipality}</option>
+                                        )}
                                         {municipalities.map((m) => (
                                             <option key={m.code} value={m.name}>{m.name}</option>
                                         ))}
@@ -557,6 +564,9 @@ export default function GeneralReport({
                                         <option value="All">
                                             {loadingBarangays ? 'Loading…' : 'All Barangays'}
                                         </option>
+                                        {selectedBarangay !== 'All' && !barangays.includes(selectedBarangay) && (
+                                            <option value={selectedBarangay}>{selectedBarangay}</option>
+                                        )}
                                         {(isBarangayLocked && userBarangays.length > 0
                                             ? barangays.filter((b) => userBarangays.includes(b))
                                             : barangays

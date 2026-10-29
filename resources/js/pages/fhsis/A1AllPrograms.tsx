@@ -186,6 +186,8 @@ interface FilterPanelProps {
   barangays?: Barangay[];
   isLocationLocked?: boolean;
   isBarangayLocked?: boolean;
+  // When provided, only these barangay codes are listed (used for BHS users).
+  allowedBarangayCodes?: string[];
 }
 
 const FilterPanel: React.FC<FilterPanelProps> = ({
@@ -200,6 +202,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   barangays = [],
   isLocationLocked = false,
   isBarangayLocked = false,
+  allowedBarangayCodes,
 }) => {
   const handleInputChange = (key: Exclude<keyof FilterState, 'barangays'>, value: string) => {
     onFilterChange({
@@ -250,10 +253,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     () => municipalities.filter((m) => m.provCode === filters.province),
     [filters.province, municipalities],
   );
-  const filteredBarangays = useMemo(
-    () => barangays.filter((b) => b.citymunCode === filters.municipality),
-    [filters.municipality, barangays],
-  );
+  const filteredBarangays = useMemo(() => {
+    const inMunicipality = barangays.filter((b) => b.citymunCode === filters.municipality);
+    return allowedBarangayCodes
+      ? inMunicipality.filter((b) => allowedBarangayCodes.includes(b.brgyCode))
+      : inMunicipality;
+  }, [filters.municipality, barangays, allowedBarangayCodes]);
 
   return (
     <div className="mb-4 p-4 bg-gray-50 border border-gray-300 rounded-lg">
@@ -845,9 +850,13 @@ export default function A1AllPrograms({
 
   // Administrators and DOH can change all location filters freely.
   // Public Health Nurses can change barangay but not region/province/municipality.
+  // BHS (Midwife) users can only pick among the barangays assigned to them
+  // (region/province/municipality stay locked, barangay list is restricted).
   // All other roles have every location field locked.
+  const isBHS = user?.role === 'BHS';
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
-  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse', 'BHS'].includes(user?.role ?? '');
+  const assignedBarangayCodes = useMemo(() => parseArray(user?.barangay_codes), [user?.barangay_codes]);
 
   // Location defaults come from the logged-in user's assigned location.
   const defaultLocation = {
@@ -901,8 +910,13 @@ export default function A1AllPrograms({
       if (filters.region) queryParams.append('region', filters.region);
       if (filters.province) queryParams.append('province', filters.province);
       if (filters.municipality) queryParams.append('municipality', filters.municipality);
-      // Send every selected barangay code as barangay[]
-      filters.barangays.forEach((code) => queryParams.append('barangay[]', code));
+      // Send every selected barangay code as barangay[].
+      // BHS users with nothing ticked fall back to ALL their assigned barangays,
+      // so an empty selection never widens the report to the whole municipality.
+      const barangayCodes = isBHS && filters.barangays.length === 0
+        ? assignedBarangayCodes
+        : filters.barangays;
+      barangayCodes.forEach((code) => queryParams.append('barangay[]', code));
       if (filters.rhuName) queryParams.append('rhu_name', filters.rhuName);
 
       const response = await fetch(`/qfhsis/public/api/reports/filtered-m1-all?${queryParams.toString()}`);
@@ -950,6 +964,7 @@ export default function A1AllPrograms({
         barangays={barangays}
         isLocationLocked={isLocationLocked}
         isBarangayLocked={isBarangayLocked}
+        allowedBarangayCodes={isBHS ? assignedBarangayCodes : undefined}
       />
 
       {/* Error message */}

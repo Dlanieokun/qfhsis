@@ -800,9 +800,13 @@ export default function M28PAA({
 
   // Administrators and DOH can change all location filters freely.
   // Public Health Nurses can change barangay but not region/province/municipality.
+  // BHS (Midwife) users can only pick among the barangays assigned to them
+  // (region/province/municipality stay locked, barangay list is restricted).
   // All other roles have every location field locked.
+  const isBHS = user?.role === 'BHS';
   const isLocationLocked = !['Administrator', 'DOH'].includes(user?.role ?? '');
-  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse'].includes(user?.role ?? '');
+  const isBarangayLocked = !['Administrator', 'DOH', 'Public Health Nurse', 'BHS'].includes(user?.role ?? '');
+  const assignedBarangayCodes = useMemo(() => parseArray(user?.barangay_codes), [user?.barangay_codes]);
 
   // Location defaults come from the logged-in user's assigned location.
   const defaultLocation = {
@@ -873,8 +877,13 @@ export default function M28PAA({
       if (filters.region) params.set('region', filters.region);
       if (filters.province) params.set('province', filters.province);
       if (filters.municipality) params.set('municipality', filters.municipality);
-      // Send every selected barangay code as barangay[]
-      filters.barangays.forEach((code) => params.append('barangay[]', code));
+      // Send every selected barangay code as barangay[].
+      // BHS users with nothing ticked fall back to ALL their assigned barangays,
+      // so an empty selection never widens the report to the whole municipality.
+      const barangayCodes = isBHS && filters.barangays.length === 0
+        ? assignedBarangayCodes
+        : filters.barangays;
+      barangayCodes.forEach((code) => params.append('barangay[]', code));
 
       const response = await fetch(`/qfhsis/public/api/reports/m28paa?${params.toString()}`, {
         method: 'GET',
@@ -940,10 +949,13 @@ export default function M28PAA({
     () => municipalities.filter((m) => m.provCode === filterState.province),
     [filterState.province, municipalities],
   );
-  const filteredBarangays = useMemo(
-    () => barangays.filter((b) => b.citymunCode === filterState.municipality),
-    [filterState.municipality, barangays],
-  );
+  const filteredBarangays = useMemo(() => {
+    const inMunicipality = barangays.filter((b) => b.citymunCode === filterState.municipality);
+    // BHS users only see the barangays assigned to them.
+    return isBHS
+      ? inMunicipality.filter((b) => assignedBarangayCodes.includes(b.brgyCode))
+      : inMunicipality;
+  }, [filterState.municipality, barangays, isBHS, assignedBarangayCodes]);
 
   return (
     <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-4">

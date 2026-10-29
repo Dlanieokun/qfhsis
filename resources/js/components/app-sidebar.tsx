@@ -9,6 +9,7 @@ import {
     ClipboardCheck,
     BarChart3,
     Users,
+    UserCog,
     LogOut,
     KeyRound,
     MoreVertical,
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
     { label: 'General Report',   href: '/qfhsis/public/fhsis/reports',           icon: BarChart3 },
     { label: 'Account Approvals', href: '/qfhsis/public/fhsis/approvals',         icon: ClipboardCheck },
     { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
+    { label: 'Manage Users',     href: '/qfhsis/public/fhsis/manage-users',      icon: UserCog },
 ];
 
 // Public URL path of the APK (file lives in laravel's public/downloads/qfhsis.apk)
@@ -101,10 +103,16 @@ export default function AppSidebar() {
 
     const allowedLabels = ROLE_NAV[String(user?.role ?? '').toUpperCase()];
     const isAdmin = String(user?.role ?? '').toUpperCase() === 'ADMINISTRATOR';
-    const visibleNavItems = (allowedLabels
-        ? NAV_ITEMS.filter((item) => allowedLabels.includes(item.label))
-        : NAV_ITEMS
-    ).filter((item) => item.label !== 'Account Approvals' || isAdmin);
+    // Administrators, or users an admin has granted "allow" to, can open Account Approvals.
+    const canApprove = isAdmin || Boolean((user as { allow?: boolean } | undefined)?.allow);
+    const visibleNavItems = NAV_ITEMS.filter((item) => {
+        if (item.label === 'Account Approvals') return canApprove;
+        // Manage Users: only for non-administrators who have been granted "allow".
+        if (item.label === 'Manage Users') {
+            return !isAdmin && Boolean((user as { allow?: boolean } | undefined)?.allow);
+        }
+        return allowedLabels ? allowedLabels.includes(item.label) : true;
+    });
 
     const initials = user?.name
         ?.split(' ')

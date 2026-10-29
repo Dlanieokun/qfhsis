@@ -62,8 +62,20 @@ class FhsisReportController extends Controller
      */
     public function generalReport(Request $request)
     {
-        $year     = $request->input('year', date('Y'));
-        $barangay = $request->input('barangay', 'All');
+        $year         = $request->input('year', date('Y'));
+        $region       = $request->input('region', 'All');
+        $province     = $request->input('province', 'All');
+        $municipality = $request->input('municipality', 'All');
+        $barangay     = $request->input('barangay', 'All');
+
+        // Active address filters only (column on household_profiles => selected name).
+        // Values are names, matching the text stored in household_profiles.
+        $address = array_filter([
+            'region'       => $region,
+            'province'     => $province,
+            'municipality' => $municipality,
+            'barangay'     => $barangay,
+        ], fn ($v) => $v !== null && $v !== '' && $v !== 'All');
 
         // ── Safe defaults (keeps frontend rendering clean when tables are empty) ──
         $demographics              = ['total_profiles' => 0, 'male_count' => 0, 'female_count' => 0];
@@ -87,21 +99,27 @@ class FhsisReportController extends Controller
         $mental_health             = ['total_records' => 0, 'screened_mhgap' => 0];
         $environmental_health      = ['total_records' => 0, 'safely_managed_water' => 0, 'safely_managed_sanitation' => 0];
 
-        // Helper: add a profileId join + barangay filter only when needed.
-        // $table  = table being queried, $fk = its foreign key column name.
-        $withBarangay = function ($query, string $table, string $fk) use ($barangay) {
-            if ($barangay !== 'All') {
-                $query->join('household_profiles', "{$table}.{$fk}", '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
+        // Helper: scope a table to the selected address (region/province/municipality/barangay)
+        // via its household_profiles FK. Uses a subquery instead of a JOIN so that
+        // `created_at` is never ambiguous and cloned queries stay safe.
+        // $table.$fk = foreign key column pointing at household_profiles.id
+        $scope = function ($query, string $table, string $fk) use ($address) {
+            if (empty($address)) {
+                return $query;
             }
-            return $query;
+            return $query->whereIn("{$table}.{$fk}", function ($sub) use ($address) {
+                $sub->select('household_profiles.id')->from('household_profiles');
+                foreach ($address as $column => $value) {
+                    $sub->where("household_profiles.{$column}", $value);
+                }
+            });
         };
 
         try {
             // ── 1. Core Demographics ──────────────────────────────────────────
             $profileQuery = DB::table('household_profiles');
-            if ($barangay !== 'All') {
-                $profileQuery->where('barangay', $barangay);
+            foreach ($address as $column => $value) {
+                $profileQuery->where($column, $value);
             }
             $demographics['total_profiles'] = (clone $profileQuery)->count();
             $demographics['male_count']     = (clone $profileQuery)->where('sex', 'Male')->count();
@@ -109,39 +127,25 @@ class FhsisReportController extends Controller
 
             // ── 2. Maternal Care ──────────────────────────────────────────────
             if (Schema::hasTable('maternal_care_records')) {
-                $q = DB::table('maternal_care_records')
-                    ->join('household_profiles', 'maternal_care_records.profileId', '=', 'household_profiles.id')
+                $q = $scope(DB::table('maternal_care_records'), 'maternal_care_records', 'profileId')
                     ->whereYear('maternal_care_records.created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->where('household_profiles.barangay', $barangay);
-                }
                 $maternal_stats['total_tracked']          = (clone $q)->count();
-                // Fix: was '< 19' (strict), card label says ≤19
                 $maternal_stats['adolescent_pregnancies'] = (clone $q)->where('maternal_care_records.age', '<=', 19)->count();
                 $maternal_stats['normal_bmi']             = (clone $q)->where('maternal_care_records.bmiStatus', 'Normal')->count();
             }
 
             // ── 3. Family Planning ────────────────────────────────────────────
             if (Schema::hasTable('family_planning_records')) {
-                $q = DB::table('family_planning_records')
-                    ->join('household_profiles', 'family_planning_records.profileId', '=', 'household_profiles.id')
+                $q = $scope(DB::table('family_planning_records'), 'family_planning_records', 'profileId')
                     ->whereYear('family_planning_records.created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->where('household_profiles.barangay', $barangay);
-                }
                 $fp_stats['total_clients'] = (clone $q)->count();
                 $fp_stats['new_acceptors'] = (clone $q)->where('family_planning_records.clientType', 'New Acceptor')->count();
             }
 
             // ── 4. Child Immunization (0–11 months) ──────────────────────────
-            // Fix: table is child_immunization_records, NOT the non-existent child_care_records
             if (Schema::hasTable('child_immunization_records')) {
-                $q = DB::table('child_immunization_records')
+                $q = $scope(DB::table('child_immunization_records'), 'child_immunization_records', 'profileId')
                     ->whereYear('child_immunization_records.created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'child_immunization_records.profileId', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
                 $child_immunization['total_records'] = (clone $q)->count();
                 $child_immunization['fic_count']     = (clone $q)->whereNotNull('child_immunization_records.ficDate')->count();
                 $child_immunization['cic_count']     = (clone $q)->whereNotNull('child_immunization_records.cicDate')->count();
@@ -153,24 +157,16 @@ class FhsisReportController extends Controller
 
             // ── 5. Child Immunization – School (SBI / CBI) ───────────────────
             if (Schema::hasTable('child_immunization_school_records')) {
-                $q = DB::table('child_immunization_school_records')
+                $q = $scope(DB::table('child_immunization_school_records'), 'child_immunization_school_records', 'profileId')
                     ->whereYear('child_immunization_school_records.created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'child_immunization_school_records.profileId', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
                 $child_immunization_school['total_records'] = (clone $q)->count();
                 $child_immunization_school['hpv_completed'] = (clone $q)->where('child_immunization_school_records.hpvCompleted', 1)->count();
             }
 
             // ── 6. Child Nutrition ────────────────────────────────────────────
             if (Schema::hasTable('child_nutrition_records')) {
-                $q = DB::table('child_nutrition_records')
+                $q = $scope(DB::table('child_nutrition_records'), 'child_nutrition_records', 'profileId')
                     ->whereYear('child_nutrition_records.created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'child_nutrition_records.profileId', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
                 $child_nutrition['total_records']  = (clone $q)->count();
                 $child_nutrition['mam_identified'] = (int) (clone $q)->sum('child_nutrition_records.mamIdentified');
                 $child_nutrition['sam_identified'] = (int) (clone $q)->sum('child_nutrition_records.samIdentified');
@@ -178,8 +174,8 @@ class FhsisReportController extends Controller
 
             // ── 7. Child Sick (IMCI) ──────────────────────────────────────────
             if (Schema::hasTable('child_sick_records')) {
-                $q = DB::table('child_sick_records')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('child_sick_records'), 'child_sick_records', 'profileId')
+                    ->whereYear('child_sick_records.created_at', $year);
                 $child_sick['total_records']     = (clone $q)->count();
                 $child_sick['diagnosed_measles'] = (clone $q)->where('diagnosisMeasles', true)->count();
                 // Treated = any pneumonia antibiotic recorded
@@ -194,20 +190,16 @@ class FhsisReportController extends Controller
 
             // ── 8. Oral Health ────────────────────────────────────────────────
             if (Schema::hasTable('oral_health_care')) {
-                $q = DB::table('oral_health_care')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('oral_health_care'), 'oral_health_care', 'profile_id')
+                    ->whereYear('oral_health_care.created_at', $year);
                 $oral_health['total_records']  = (clone $q)->count();
                 $oral_health['complete_rpoc0'] = (clone $q)->where('complete_rpoc0', 1)->count();
             }
 
             // ── 9. PhilPEN Risk Assessment ────────────────────────────────────
             if (Schema::hasTable('philpen_risk_assessments')) {
-                $q = DB::table('philpen_risk_assessments')
-                    ->whereYear('created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'philpen_risk_assessments.profile_id', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
+                $q = $scope(DB::table('philpen_risk_assessments'), 'philpen_risk_assessments', 'profile_id')
+                    ->whereYear('philpen_risk_assessments.created_at', $year);
                 $philpen['total_records']         = (clone $q)->count();
                 $philpen['hypertension_positive'] = (clone $q)->where('hypertension_result', 1)->count();
                 $philpen['current_smokers']       = (clone $q)->where('current_smoker', 1)->count();
@@ -215,12 +207,8 @@ class FhsisReportController extends Controller
 
             // ── 10. Eyes Screening ────────────────────────────────────────────
             if (Schema::hasTable('eyes_screenings')) {
-                $q = DB::table('eyes_screenings')
-                    ->whereYear('created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'eyes_screenings.profile_id', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
+                $q = $scope(DB::table('eyes_screenings'), 'eyes_screenings', 'profile_id')
+                    ->whereYear('eyes_screenings.created_at', $year);
                 $eyes_screening['total_screened']   = (clone $q)->count();
                 $eyes_screening['with_eye_disease'] = (clone $q)
                     ->whereNotNull('eye_disease_code')
@@ -230,12 +218,8 @@ class FhsisReportController extends Controller
 
             // ── 11. Cervical Cancer Screening ─────────────────────────────────
             if (Schema::hasTable('cervical_cancer_screenings')) {
-                $q = DB::table('cervical_cancer_screenings')
-                    ->whereYear('created_at', $year);
-                if ($barangay !== 'All') {
-                    $q->join('household_profiles', 'cervical_cancer_screenings.profile_id', '=', 'household_profiles.id')
-                      ->where('household_profiles.barangay', $barangay);
-                }
+                $q = $scope(DB::table('cervical_cancer_screenings'), 'cervical_cancer_screenings', 'profile_id')
+                    ->whereYear('cervical_cancer_screenings.created_at', $year);
                 $cervical_cancer['total_records']        = (clone $q)->count();
                 $cervical_cancer['cervical_done']        = (clone $q)->where('cervical_screening_done', 1)->count();
                 $cervical_cancer['breast_risk_assessed'] = (clone $q)->where('breast_risk_assessment', 1)->count();
@@ -243,16 +227,16 @@ class FhsisReportController extends Controller
 
             // ── 12. Geriatric Screening ───────────────────────────────────────
             if (Schema::hasTable('geriatric_screening_records')) {
-                $q = DB::table('geriatric_screening_records')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('geriatric_screening_records'), 'geriatric_screening_records', 'profile_id')
+                    ->whereYear('geriatric_screening_records.created_at', $year);
                 $geriatric['total_records'] = (clone $q)->count();
                 $geriatric['ppv_received']  = (clone $q)->where('ppv_received_at60', true)->count();
             }
 
             // ── 13. Filariasis Registry ───────────────────────────────────────
             if (Schema::hasTable('filariasis_registry_table')) {
-                $q = DB::table('filariasis_registry_table')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('filariasis_registry_table'), 'filariasis_registry_table', 'profile_id')
+                    ->whereYear('filariasis_registry_table.created_at', $year);
                 $filariasis['total_records']      = (clone $q)->count();
                 $filariasis['with_lymphedema']    = (clone $q)->where('has_lymphedema', true)->count();
                 $filariasis['with_elephantiasis'] = (clone $q)->where('has_elephantiasis', true)->count();
@@ -260,8 +244,8 @@ class FhsisReportController extends Controller
 
             // ── 14. Leprosy Registry ──────────────────────────────────────────
             if (Schema::hasTable('leprosy_registry')) {
-                $q = DB::table('leprosy_registry')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('leprosy_registry'), 'leprosy_registry', 'profile_id')
+                    ->whereYear('leprosy_registry.created_at', $year);
                 $leprosy['total_records']  = (clone $q)->count();
                 $leprosy['paucibacillary'] = (clone $q)->where('clinical_classification', 'Paucibacillary')->count();
                 $leprosy['multibacillary'] = (clone $q)->where('clinical_classification', 'Multibacillary')->count();
@@ -269,8 +253,8 @@ class FhsisReportController extends Controller
 
             // ── 15. Rabies Records ────────────────────────────────────────────
             if (Schema::hasTable('rabies_records')) {
-                $q = DB::table('rabies_records')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('rabies_records'), 'rabies_records', 'profile_id')
+                    ->whereYear('rabies_records.created_at', $year);
                 $rabies['total_records']  = (clone $q)->count();
                 // Completed PVRV = day-28 dose date recorded
                 $rabies['completed_pvrv'] = (clone $q)
@@ -281,8 +265,8 @@ class FhsisReportController extends Controller
 
             // ── 16. Schistosomiasis Registry ──────────────────────────────────
             if (Schema::hasTable('schistosomiasis_registry')) {
-                $q = DB::table('schistosomiasis_registry')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('schistosomiasis_registry'), 'schistosomiasis_registry', 'profile_id')
+                    ->whereYear('schistosomiasis_registry.created_at', $year);
                 $schistosomiasis['total_records']      = (clone $q)->count();
                 // Confirmed = date_confirmed is set
                 $schistosomiasis['confirmed_positive'] = (clone $q)->whereNotNull('date_confirmed')->count();
@@ -294,15 +278,15 @@ class FhsisReportController extends Controller
 
             // ── 17. STH Registry ──────────────────────────────────────────────
             if (Schema::hasTable('sth_registry_records')) {
-                $q = DB::table('sth_registry_records')
-                    ->whereYear('created_at', $year);
-                $sth['total_records']  = (clone $q)->count();
+                $q = $scope(DB::table('sth_registry_records'), 'sth_registry_records', 'profile_id')
+                    ->whereYear('sth_registry_records.created_at', $year);
+                $sth['total_records']   = (clone $q)->count();
                 $sth['positive_result'] = (clone $q)->where('screening_result', 'Positive')->count();
-                $sth['mda_jan']        = (clone $q)
+                $sth['mda_jan']         = (clone $q)
                     ->whereNotNull('january_mda_date')
                     ->where('january_mda_date', '!=', '')
                     ->count();
-                $sth['mda_jul']        = (clone $q)
+                $sth['mda_jul']         = (clone $q)
                     ->whereNotNull('july_mda_date')
                     ->where('july_mda_date', '!=', '')
                     ->count();
@@ -310,16 +294,16 @@ class FhsisReportController extends Controller
 
             // ── 18. Mental Health ─────────────────────────────────────────────
             if (Schema::hasTable('mental_health_records')) {
-                $q = DB::table('mental_health_records')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('mental_health_records'), 'mental_health_records', 'profile_id')
+                    ->whereYear('mental_health_records.created_at', $year);
                 $mental_health['total_records']  = (clone $q)->count();
                 $mental_health['screened_mhgap'] = (clone $q)->where('screenedMhgap', true)->count();
             }
 
             // ── 19. Environmental Health ──────────────────────────────────────
             if (Schema::hasTable('environmental_health_records')) {
-                $q = DB::table('environmental_health_records')
-                    ->whereYear('created_at', $year);
+                $q = $scope(DB::table('environmental_health_records'), 'environmental_health_records', 'profileId')
+                    ->whereYear('environmental_health_records.created_at', $year);
                 $environmental_health['total_records']             = (clone $q)->count();
                 $environmental_health['safely_managed_water']      = (clone $q)->where('safelyManagedDrinkingWater', 1)->count();
                 $environmental_health['safely_managed_sanitation'] = (clone $q)->where('safelyManagedSanitationService', 1)->count();
@@ -330,7 +314,13 @@ class FhsisReportController extends Controller
         }
 
         return Inertia::render('GeneralReport', [
-            'filters'                   => ['year' => (string) $year, 'barangay' => $barangay],
+            'filters'                   => [
+                'year'         => (string) $year,
+                'region'       => $region,
+                'province'     => $province,
+                'municipality' => $municipality,
+                'barangay'     => $barangay,
+            ],
             'demographics'              => $demographics,
             'maternal_stats'            => $maternal_stats,
             'child_stats'               => $child_stats,

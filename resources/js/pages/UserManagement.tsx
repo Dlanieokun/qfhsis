@@ -3,9 +3,9 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import axios from 'axios';
 import {
-    AtSign, Edit2, Mail, MapPin, Phone, Plus, Search,
+    AtSign, Edit2, KeyRound, Mail, MapPin, Phone, Plus, Search,
     ShieldAlert, ShieldCheck, Trash2,
-    UserCheck, UserMinus, Users, X
+    UserCheck, UserCog, UserMinus, Users, X
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -14,9 +14,10 @@ interface User {
     name: string;
     username?: string;
     email: string;
-    contact_number?: number | null;
-    role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH';
+    contact_number?: string | null;
+    role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH' | 'PHO';
     status: 'Active' | 'Inactive';
+    allow?: boolean;
     assigned_facility?: string;
 
     barangay?: string[] | string;
@@ -69,6 +70,10 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
     const [searchTerm, setSearchTerm] = useState(filters?.search || '');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [resetTarget, setResetTarget] = useState<User | null>(null);
+    const [resetting, setResetting] = useState(false);
+    const [allowTarget, setAllowTarget] = useState<User | null>(null);
+    const [allowing, setAllowing] = useState(false);
 
     const [regions, setRegions] = useState<LocationItem[]>([]);
     const [provinces, setProvinces] = useState<LocationItem[]>([]);
@@ -79,7 +84,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         name: '',
         username: '',
         email: '',
-        contact_number: '' as number | '',
+        contact_number: '',
         role: 'Public Health Nurse' as User['role'],
         status: 'Active' as User['status'],
         assigned_facility: '',
@@ -157,7 +162,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             name: user.name || '',
             username: user.username || '',
             email: user.email || '',
-            contact_number: user.contact_number ?? '',
+            contact_number: user.contact_number ? String(user.contact_number) : '',
             role: user.role,
             status: user.status,
             assigned_facility: user.assigned_facility || '',
@@ -207,6 +212,42 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
         } else {
             post('/qfhsis/public/fhsis/users', { onSuccess: () => closeModal() });
         }
+    };
+
+    const handleResetPassword = () => {
+        if (!resetTarget) return;
+
+        router.post(
+            `/qfhsis/public/fhsis/users/${resetTarget.id}/reset-password`,
+            {},
+            {
+                preserveScroll: true,
+                onStart: () => setResetting(true),
+                onFinish: () => {
+                    setResetting(false);
+                    setResetTarget(null);
+                },
+            }
+        );
+    };
+
+    const handleAllowUser = () => {
+        if (!allowTarget) return;
+
+        const endpoint = allowTarget.allow ? 'revoke-allow' : 'allow';
+
+        router.post(
+            `/qfhsis/public/fhsis/users/${allowTarget.id}/${endpoint}`,
+            {},
+            {
+                preserveScroll: true,
+                onStart: () => setAllowing(true),
+                onFinish: () => {
+                    setAllowing(false);
+                    setAllowTarget(null);
+                },
+            }
+        );
     };
 
     const handleDelete = (id: number) => {
@@ -316,6 +357,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             'BHS': 'bg-amber-50 text-amber-700 border-amber-100/80',
             'BHW': 'bg-purple-50 text-purple-700 border-purple-100/80',
             'DOH': 'bg-cyan-50 text-cyan-700 border-cyan-100/80',
+            'PHO': 'bg-indigo-50 text-indigo-700 border-indigo-100/80',
         };
         return (
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[role] || 'bg-slate-50 text-slate-700 border-slate-100'}`}>
@@ -440,6 +482,24 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                                 <td className="px-6 py-4 text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <button
+                                                            onClick={() => setAllowTarget(user)}
+                                                            title={user.allow ? 'Allowed to manage users (click to remove)' : 'Allow to manage users'}
+                                                            className={`p-1.5 border rounded-lg transition ${
+                                                                user.allow
+                                                                    ? 'text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-100'
+                                                                    : 'text-slate-500 border-transparent hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-100'
+                                                            }`}
+                                                        >
+                                                            <UserCog className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setResetTarget(user)}
+                                                            title="Reset password"
+                                                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-100 rounded-lg transition"
+                                                        >
+                                                            <KeyRound className="w-4 h-4" />
+                                                        </button>
+                                                        <button
                                                             onClick={() => openEditModal(user)}
                                                             className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100 rounded-lg transition"
                                                         >
@@ -533,9 +593,9 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Contact Number</label>
                                     <input
-                                        type="number"
+                                        type="tel"
                                         value={data.contact_number}
-                                        onChange={(e) => setData('contact_number', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                        onChange={(e) => setData('contact_number', e.target.value)}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                                         placeholder="09171234567"
                                     />
@@ -553,6 +613,7 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                         >
                                             <option value="Administrator">Administrator</option>
                                             <option value="DOH">DOH</option>
+                                            <option value="PHO">PHO</option>
                                             <option value="Doctor">Doctor</option>
                                             <option value="Public Health Nurse">Public Health Nurse</option>
                                             <option value="BHS">Midwife</option>
@@ -712,6 +773,87 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {allowTarget && (
+                    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-xl w-full max-w-sm overflow-hidden">
+                            <div className="p-6 text-center space-y-3">
+                                <div className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center ${allowTarget.allow ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                    <UserCog className="w-5 h-5" />
+                                </div>
+                                <h2 className="font-bold text-slate-900 tracking-tight">
+                                    {allowTarget.allow ? 'Remove User Management Permission' : 'Allow User Management'}
+                                </h2>
+                                {allowTarget.allow ? (
+                                    <p className="text-sm text-slate-500">
+                                        Are you sure you want to remove{' '}
+                                        <span className="font-semibold text-slate-800">{allowTarget.name}</span>
+                                        's permission to manage users?
+                                    </p>
+                                ) : (
+                                    <p className="text-sm text-slate-500">
+                                        Are you giving permission to{' '}
+                                        <span className="font-semibold text-slate-800">{allowTarget.name}</span>{' '}
+                                        to manage the users under their assigned address?
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-3 justify-end p-4 border-t border-slate-100 bg-slate-50/50">
+                                <button
+                                    type="button"
+                                    onClick={() => setAllowTarget(null)}
+                                    disabled={allowing}
+                                    className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition"
+                                >
+                                    No
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAllowUser}
+                                    disabled={allowing}
+                                    className={`px-4 py-2 text-sm font-semibold text-white rounded-xl disabled:bg-slate-300 transition shadow-sm ${allowTarget.allow ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                                >
+                                    {allowing ? 'Saving...' : 'Yes'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {resetTarget && (
+                    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-xl w-full max-w-sm overflow-hidden">
+                            <div className="p-6 text-center space-y-3">
+                                <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+                                    <KeyRound className="w-5 h-5" />
+                                </div>
+                                <h2 className="font-bold text-slate-900 tracking-tight">Reset Password</h2>
+                                <p className="text-sm text-slate-500">
+                                    Are you sure you want to reset the password for{' '}
+                                    <span className="font-semibold text-slate-800">{resetTarget.name}</span>?
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 justify-end p-4 border-t border-slate-100 bg-slate-50/50">
+                                <button
+                                    type="button"
+                                    onClick={() => setResetTarget(null)}
+                                    disabled={resetting}
+                                    className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition"
+                                >
+                                    No
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleResetPassword}
+                                    disabled={resetting}
+                                    className="px-4 py-2 text-sm font-semibold text-white bg-amber-600 rounded-xl hover:bg-amber-700 disabled:bg-slate-300 transition shadow-sm"
+                                >
+                                    {resetting ? 'Resetting...' : 'Yes'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

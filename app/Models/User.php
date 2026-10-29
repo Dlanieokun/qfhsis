@@ -26,6 +26,7 @@ class User extends Authenticatable
         'password',
         'role',
         'status',
+        'allow',
         'assigned_facility',
         'barangay',
         'municipality',
@@ -57,8 +58,23 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password'          => 'hashed',
+            'allow'             => 'boolean',
             'barangay'          => 'array',
             'barangay_codes'    => 'array',
         ];
+    }
+
+    public function isAdministrator(): bool
+    {
+        return strtoupper((string) $this->role) === 'ADMINISTRATOR';
+    }
+
+    /**
+     * Administrators, or users an admin has granted "allow" to,
+     * may open Account Approvals.
+     */
+    public function canApproveAccounts(): bool
+    {
+        return $this->isAdministrator() || (bool) $this->allow;
     }
 }

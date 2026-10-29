@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,8 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Admin page where self-registered (Inactive) accounts are approved or rejected.
+ * Page where administrators (and users they have allowed) approve or reject
+ * self-registered (Inactive) accounts.
  * The applicant is emailed either way.
  */
 class AccountApprovalController extends Controller
@@ -21,16 +23,63 @@ class AccountApprovalController extends Controller
 
     private const ROLE_LABELS = ['BHS' => 'Midwife'];
 
-    private function authorizeAdmin(Request $request): void
+    /** Administrators, or users an admin has granted "allow" to. */
+    private function authorizeAccess(Request $request): User
     {
-        abort_unless($request->user()?->role === 'Administrator', 403, 'Administrators only.');
+        $actor = $request->user();
+
+        abort_unless($actor?->canApproveAccounts(), 403, 'You are not allowed to manage account approvals.');
+
+        return $actor;
+    }
+
+    /**
+     * Administrators see everyone. An allowed user only sees accounts under their own
+     * assigned address: the narrowest level they have set (municipality, then province,
+     * then region). An allowed user with no assigned address sees nothing.
+     */
+    private function scopeToActor(Builder $query, User $actor): Builder
+    {
+        if ($actor->isAdministrator()) {
+            return $query;
+        }
+
+        $query->whereKeyNot($actor->id);
+
+        if ($actor->municipality_code) {
+            $query->where('municipality_code', $actor->municipality_code);
+        } elseif ($actor->province_code) {
+            $query->where('province_code', $actor->province_code);
+        } elseif ($actor->region_code) {
+            $query->where('region_code', $actor->region_code);
+        } else {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query;
+    }
+
+    /** Aborts unless the target account is within the actor's scope. */
+    private function authorizeTarget(User $actor, User $target): void
+    {
+        $inScope = $this->scopeToActor(User::query(), $actor)->whereKey($target->id)->exists();
+
+        abort_unless($inScope, 403, 'This account is outside your assigned address.');
+    }
+
+    /** Only administrators may hand out the Administrator role. */
+    private function rolesFor(User $actor): array
+    {
+        return $actor->isAdministrator()
+            ? self::ROLES
+            : array_values(array_diff(self::ROLES, ['Administrator']));
     }
 
     public function index(Request $request): Response
     {
-        $this->authorizeAdmin($request);
+        $actor = $this->authorizeAccess($request);
 
-        $users = User::query()
+        $users = $this->scopeToActor(User::query(), $actor)
             ->where('status', 'Inactive')
             ->latest()
             ->get(['id', 'name', 'email', 'role', 'status', 'assigned_facility', 'contact_number',
@@ -40,17 +89,18 @@ class AccountApprovalController extends Controller
             'users' => $users,
             'stats' => [
                 'pending' => $users->count(),
-                'active' => User::where('status', 'Active')->count(),
+                'active' => $this->scopeToActor(User::query(), $actor)->where('status', 'Active')->count(),
             ],
         ]);
     }
 
     public function approve(Request $request, User $user): RedirectResponse
     {
-        $this->authorizeAdmin($request);
+        $actor = $this->authorizeAccess($request);
+        $this->authorizeTarget($actor, $user);
 
         $data = $request->validate([
-            'role' => ['required', Rule::in(self::ROLES)],
+            'role' => ['required', Rule::in($this->rolesFor($actor))],
         ]);
 
         if ($user->status === 'Active') {
@@ -78,7 +128,8 @@ class AccountApprovalController extends Controller
 
     public function reject(Request $request, User $user): RedirectResponse
     {
-        $this->authorizeAdmin($request);
+        $actor = $this->authorizeAccess($request);
+        $this->authorizeTarget($actor, $user);
 
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
