@@ -138,7 +138,16 @@ interface Q1AllProgramsProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
-  onApplyFilter?: (month: string, year: string) => void;
+  onApplyFilter?: (
+    month: string,
+    year: string,
+    location?: {
+      region_code: string;
+      province_code: string;
+      municipality_code: string;
+      barangay_codes: string[];
+    },
+  ) => void;
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -1824,7 +1833,15 @@ export default function Q1AllPrograms({
     const quarterIndex = quarters.indexOf(selectedQuarter);
     const quarterFirstMonth = quarterIndex !== -1 ? quarterIndex * 3 + 1 : new Date().getMonth() + 1;
     const monthCode = String(quarterFirstMonth).padStart(2, '0');
-    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()));
+    const barangayCodes = isBHS && selectedBarangays.length === 0
+      ? assignedBarangayCodes
+      : selectedBarangays;
+    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()), {
+      region_code: selectedRegion,
+      province_code: selectedProvince,
+      municipality_code: selectedMunicipality,
+      barangay_codes: barangayCodes,
+    });
     await Promise.all([
       fetchFamilyPlanningReport(),
       fetchMaternalCareReport(),

@@ -160,7 +160,16 @@ interface M1AllProgramsProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
-  onApplyFilter?: (month: string, year: string) => void;
+  onApplyFilter?: (
+    month: string,
+    year: string,
+    location?: {
+      region_code: string;
+      province_code: string;
+      municipality_code: string;
+      barangay_codes: string[];
+    },
+  ) => void;
 }
 
 // ─── Reusable cell helpers ────────────────────────────────────────────────────
@@ -1955,7 +1964,14 @@ export default function M1AllPrograms({
     // modal with the period that was just filtered by.
     const monthNumber = selectedMonth ? months.indexOf(selectedMonth) + 1 : null;
     const monthCode = monthNumber ? String(monthNumber).padStart(2, '0') : '';
-    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()));
+    const barangayCodes =
+      isBHS && selectedBarangays.length === 0 ? assignedBarangayCodes : selectedBarangays;
+    onApplyFilter?.(monthCode, selectedYear || String(new Date().getFullYear()), {
+      region_code: selectedRegion,
+      province_code: selectedProvince,
+      municipality_code: selectedMunicipality,
+      barangay_codes: barangayCodes,
+    });
   };
 
   const sections = [

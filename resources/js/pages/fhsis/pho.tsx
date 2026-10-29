@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import AppLayout from '@/layouts/app-layout';
@@ -27,91 +28,15 @@ interface Province { provCode: string; provDesc: string; regCode: string; }
 interface Municipality { citymunCode: string; citymunDesc: string; provCode: string; }
 interface Barangay { brgyCode: string; brgyDesc: string; citymunCode: string; }
 
-// ─── Form Data Shapes ────────────────────────────────────────────────────────
-interface FamilyPlanningBrackets {
-    '10-14': number;
-    '15-19': number;
-    '20-49': number;
-    total: number;
-}
-interface FamilyPlanningData {
-    demandSatisfied: FamilyPlanningBrackets;
-    currentUsersByMethod: Record<string, FamilyPlanningBrackets>;
-}
-
-interface AgeBrackets { '10-14': number; '15-19': number; '20-49': number; total: number; }
-interface SexBrackets { male: number; female: number; total: number; }
-
-interface MaternalCareData {
-    prenatal: Record<string, AgeBrackets>;
-    intrapartum: Record<string, SexBrackets>;
-    postpartum: Record<string, AgeBrackets>;
-}
-
-interface ChildCareData {
-    imm0_11: Record<string, SexBrackets>;
-    immPrev: Record<string, SexBrackets>;
-    schoolImm: Record<string, SexBrackets>;
-    nutrition: Record<string, SexBrackets>;
-    nutrition2: Record<string, SexBrackets>;
-    mgmtSick: Record<string, SexBrackets>;
-}
-
-interface OralHealthData {
-    infantFirstVisit: SexBrackets;
-    firstVisit: Record<string, SexBrackets>;
-    firstVisitFacility: Record<string, SexBrackets>;
-    firstVisitNonFacility: Record<string, SexBrackets>;
-    completed2Visits: Record<string, SexBrackets>;
-    completed2VisitsFacility: Record<string, SexBrackets>;
-    completed2VisitsNonFacility: Record<string, SexBrackets>;
-}
-
-interface CervicalCancerTotals {
-    screened: number; via: number; papSmear: number; hpvDna: number; assessedOnly: number;
-    suspicious: number; linkedToCare: number; linkedTreated: number; linkedReferred: number;
-}
-interface BreastCancerTotals {
-    seen: number; highRiskOrSymptomatic: number; providedCbe: number; providedMammogram: number;
-    remarkableCbe: number; remarkableMammogram: number; linkedToCare: number; asymptomaticScreened: number;
-}
-interface NonCommunicableDiseaseData {
-    lifestyle2059: Record<string, SexBrackets>;
-    lifestyle60plus: Record<string, SexBrackets>;
-    cvd2059: SexBrackets;
-    cvd60plus: SexBrackets;
-    dm2059: SexBrackets;
-    dm60plus: SexBrackets;
-    blindness: Record<string, SexBrackets>;
-    mentalHealth: Record<string, SexBrackets>;
-    cervical: CervicalCancerTotals;
-    breast: BreastCancerTotals;
-}
-
-interface EnvironmentalHealthData {
-    water: { levelI: number; levelII: number; levelIII: number; safelyManaged: number; total: number };
-    sanitation: {
-        pourFlushSeptic: number; pourFlushSewer: number; vip: number;
-        basicSanitationFacility: number; safelyManagedSanitation: number; total: number;
-    };
-}
-
-interface InfectiousDiseaseData {
-    filariasis: Record<string, SexBrackets>;
-    rabies: Record<string, SexBrackets>;
-    schistosomiasis: Record<string, SexBrackets>;
-    sth: Record<string, SexBrackets>;
-    leprosy: Record<string, SexBrackets>;
+// Address captured from the form filter when "Apply Filters" is clicked
+export interface FilterLocation {
+    region_code: string;
+    province_code: string;
+    municipality_code: string;
+    barangay_codes: string[];
 }
 
 interface PhoPageProps {
-    familyPlanning?: FamilyPlanningData;
-    maternalCare?: MaternalCareData;
-    childCare?: ChildCareData;
-    oralHealth?: OralHealthData;
-    nonCommunicableDisease?: NonCommunicableDiseaseData;
-    environmentalHealth?: EnvironmentalHealthData;
-    infectiousDisease?: InfectiousDiseaseData;
     // Location Data injected via controller
     regions?: Region[];
     provinces?: Province[];
@@ -140,6 +65,37 @@ const SUBMIT_MONTHS = [
     { value: '12', label: 'December' },
 ];
 
+// Human-readable address shown inside the Submit / Decline modals
+interface LocationLabels {
+    region: string;
+    province: string;
+    municipality: string;
+    barangays: string[];
+}
+
+function LocationSummary({ location }: { location: LocationLabels }) {
+    const rows: [string, string][] = [
+        ['Region', location.region],
+        ['Province', location.province],
+        ['Municipality / City', location.municipality],
+        ['Barangay', location.barangays.length ? location.barangays.join(', ') : ''],
+    ];
+
+    return (
+        <div className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+            <p className="mb-1 text-xs font-semibold text-gray-700">Address (from filter)</p>
+            <dl className="space-y-0.5 text-xs">
+                {rows.map(([label, value]) => (
+                    <div key={label} className="flex gap-2">
+                        <dt className="w-28 shrink-0 text-gray-500">{label}</dt>
+                        <dd className="text-gray-800 break-words">{value || '—'}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+}
+
 // ─── Submit Report Modal ──────────────────────────────────────────────────────
 interface SubmitReportModalProps {
     isOpen: boolean;
@@ -149,6 +105,7 @@ interface SubmitReportModalProps {
     error: string | null;
     hasExisting: boolean;
     checkingExisting: boolean;
+    location: LocationLabels;
     onMonthChange: (value: string) => void;
     onYearChange: (value: string) => void;
     onCancel: () => void;
@@ -163,6 +120,7 @@ function SubmitReportModal({
     error,
     hasExisting,
     checkingExisting,
+    location,
     onMonthChange,
     onYearChange,
     onCancel,
@@ -188,6 +146,8 @@ function SubmitReportModal({
                 <p className="mt-1 text-xs text-gray-500">
                     Select the reporting month and year you want to submit.
                 </p>
+
+                <LocationSummary location={location} />
 
                 <div className="mt-4 space-y-3">
                     <div>
@@ -266,6 +226,7 @@ interface DeclineReportModalProps {
     year: string;
     isDeclining: boolean;
     error: string | null;
+    location: LocationLabels;
     onMonthChange: (value: string) => void;
     onYearChange: (value: string) => void;
     onCancel: () => void;
@@ -278,6 +239,7 @@ function DeclineReportModal({
     year,
     isDeclining,
     error,
+    location,
     onMonthChange,
     onYearChange,
     onCancel,
@@ -303,6 +265,8 @@ function DeclineReportModal({
                 <p className="mt-1 text-xs text-gray-500">
                     Select the reporting month and year you want to decline.
                 </p>
+
+                <LocationSummary location={location} />
 
                 <div className="mt-4 space-y-3">
                     <div>
@@ -372,11 +336,17 @@ export default function PhoPage({
     // so it doesn't gate the Submit button behind an "Apply Filter" click.
     const [isFilterApplied, setIsFilterApplied] = useState(activeTab === 'mo');
 
+    // Address (region/province/municipality/barangays) taken from the filter
+    // the user last applied. Falls back to the user's profile address when a
+    // tab doesn't report one.
+    const [appliedLocation, setAppliedLocation] = useState<FilterLocation | null>(null);
+
     const handleTabChange = (tab: typeof activeTab) => {
         setActiveTab(tab);
         setIsFilterApplied(tab === 'mo');
         setSubmitMonth('');
         setHasExistingSubmission(false);
+        setAppliedLocation(null);
     };
 
     // ─── Submit Report modal state ───────────────────────────────────────────
@@ -396,11 +366,39 @@ export default function PhoPage({
 
     // Called by whichever form is active when its own "Apply Filter(s)"
     // button is clicked — reveals the Submit button and pre-fills the
-    // modal's month/year with whatever period the user just filtered by.
-    const handleFormFilterApplied = (month: string, year: string) => {
+    // modal's month/year (and the address) with whatever the user just filtered by.
+    const handleFormFilterApplied = (month: string, year: string, location?: FilterLocation) => {
         setIsFilterApplied(true);
         if (month) setSubmitMonth(month);
         if (year) setSubmitYear(year);
+        if (location) setAppliedLocation(location);
+    };
+
+    // Address that gets saved with the submission: the filter's address if the
+    // form reported one, otherwise the logged-in user's profile address.
+    const getSubmitLocation = () => ({
+        region_code: appliedLocation?.region_code ?? user?.region_code ?? '',
+        province_code: appliedLocation?.province_code ?? user?.province_code ?? '',
+        municipality_code: appliedLocation?.municipality_code ?? user?.municipality_code ?? '',
+        barangay_codes: appliedLocation?.barangay_codes ?? parseArray(user?.barangay_codes),
+    });
+
+    // Names for the address that will be saved, looked up from the location
+    // lists (falls back to the raw code if a name can't be found).
+    const submitLocation = getSubmitLocation();
+    const submitLocationLabels: LocationLabels = {
+        region:
+            regions.find((r) => r.regCode === submitLocation.region_code)?.regDesc
+            ?? submitLocation.region_code,
+        province:
+            provinces.find((p) => p.provCode === submitLocation.province_code)?.provDesc
+            ?? submitLocation.province_code,
+        municipality:
+            municipalities.find((m) => m.citymunCode === submitLocation.municipality_code)?.citymunDesc
+            ?? submitLocation.municipality_code,
+        barangays: submitLocation.barangay_codes.map(
+            (code) => barangays.find((b) => b.brgyCode === code)?.brgyDesc ?? code,
+        ),
     };
 
     // Whether submit_program_report already has a row for this
@@ -445,12 +443,20 @@ export default function PhoPage({
 
         const timer = setTimeout(async () => {
             try {
+                const loc = getSubmitLocation();
                 const response = await axios.get('/qfhsis/public/api/reports/submit-program-report', {
                     params: { form: activeTab, month: submitMonth, year: submitYear },
                 });
                 if (cancelled) return;
-                const total = response.data?.data?.total ?? response.data?.data?.data?.length ?? 0;
-                setHasExistingSubmission(total > 0);
+                const rows: any[] = response.data?.data?.data ?? [];
+                const norm = (codes: unknown) =>
+                    (Array.isArray(codes) ? codes.map(String) : []).sort().join(',');
+                const sameAddress = (r: any) =>
+                    (r.region_code ?? '') === loc.region_code
+                    && (r.province_code ?? '') === loc.province_code
+                    && (r.municipality_code ?? '') === loc.municipality_code
+                    && norm(r.barangay_codes) === norm(loc.barangay_codes);
+                setHasExistingSubmission(rows.some(sameAddress));
             } catch {
                 if (!cancelled) setHasExistingSubmission(false);
             } finally {
@@ -462,7 +468,7 @@ export default function PhoPage({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [isFilterApplied, activeTab, submitMonth, submitYear]);
+    }, [isFilterApplied, activeTab, submitMonth, submitYear, appliedLocation]);
 
     const handleSubmitReport = async () => {
         if (!submitMonth || !submitYear) {
@@ -486,10 +492,8 @@ export default function PhoPage({
                     form: activeTab,
                     month: submitMonth,
                     year: submitYear,
-                    region_code: user?.region_code ?? '',
-                    province_code: user?.province_code ?? '',
-                    municipality_code: user?.municipality_code ?? '',
-                    barangay_codes: parseArray(user?.barangay_codes),
+                    // Address comes from the applied filter
+                    ...getSubmitLocation(),
                 },
             );
 
@@ -528,10 +532,8 @@ export default function PhoPage({
                     month: submitMonth,
                     year: submitYear,
                     status: 'rejected',
-                    region_code: user?.region_code ?? '',
-                    province_code: user?.province_code ?? '',
-                    municipality_code: user?.municipality_code ?? '',
-                    barangay_codes: parseArray(user?.barangay_codes),
+                    // Address comes from the applied filter
+                    ...getSubmitLocation(),
                 },
             );
 
@@ -595,7 +597,7 @@ export default function PhoPage({
             </div>
 
             <div className="max-w-7xl mx-auto px-6 pt-4">
-                <motion.nav 
+                <motion.nav
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ type: 'spring', stiffness: 200, damping: 25 }}
@@ -657,8 +659,8 @@ export default function PhoPage({
                                 onApplyFilter={handleFormFilterApplied}
                             />
                         )}
-                        {activeTab === 'm2' && 
-                            <M28PAA 
+                        {activeTab === 'm2' &&
+                            <M28PAA
                                 regions={regions}
                                 provinces={provinces}
                                 municipalities={municipalities}
@@ -666,8 +668,8 @@ export default function PhoPage({
                                 onApplyFilter={handleFormFilterApplied}
                             />
                         }
-                        {activeTab === 'a1' && 
-                            <A1AllPrograms 
+                        {activeTab === 'a1' &&
+                            <A1AllPrograms
                                 regions={regions}
                                 provinces={provinces}
                                 municipalities={municipalities}
@@ -675,7 +677,7 @@ export default function PhoPage({
                                 onApplyFilter={handleFormFilterApplied}
                             />
                         }
-                        {activeTab === 'mo' && 
+                        {activeTab === 'mo' &&
                             <MorbidityPage
                                 regions={regions}
                                 provinces={provinces}
@@ -696,6 +698,7 @@ export default function PhoPage({
                 error={submitReportError}
                 hasExisting={hasExistingSubmission}
                 checkingExisting={checkingExistingSubmission}
+                location={submitLocationLabels}
                 onMonthChange={setSubmitMonth}
                 onYearChange={setSubmitYear}
                 onCancel={closeSubmitModal}
@@ -708,6 +711,7 @@ export default function PhoPage({
                     month={submitMonth}
                     year={submitYear}
                     isDeclining={isDecliningReport}
+                    location={submitLocationLabels}
                     error={declineReportError}
                     onMonthChange={setSubmitMonth}
                     onYearChange={setSubmitYear}

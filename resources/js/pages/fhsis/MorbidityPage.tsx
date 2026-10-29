@@ -113,7 +113,16 @@ interface MorbidityPageProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
-  onApplyFilter?: (month: string, year: string) => void;
+  onApplyFilter?: (
+    month: string,
+    year: string,
+    location?: {
+      region_code: string;
+      province_code: string;
+      municipality_code: string;
+      barangay_codes: string[];
+    },
+  ) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -842,7 +851,15 @@ export default function MorbidityPage({
   const handleApplyFilters = () => {
     const monthIndex = months.indexOf(filterState.month);
     const monthCode = monthIndex !== -1 ? String(monthIndex + 1).padStart(2, '0') : '';
-    onApplyFilter?.(monthCode, filterState.year || String(new Date().getFullYear()));
+    const barangayCodes = isBHS && filterState.barangays.length === 0
+      ? assignedBarangayCodes
+      : filterState.barangays;
+    onApplyFilter?.(monthCode, filterState.year || String(new Date().getFullYear()), {
+      region_code: filterState.region,
+      province_code: filterState.province,
+      municipality_code: filterState.municipality,
+      barangay_codes: barangayCodes,
+    });
     setAppliedFilters(filterState);
     fetchReportData(filterState);
   };

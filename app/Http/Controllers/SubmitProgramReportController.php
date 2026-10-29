@@ -11,6 +11,9 @@ class SubmitProgramReportController extends Controller
 {
     private const PRIVILEGED_ROLES = ['Administrator', 'DOH'];
 
+    // Roles allowed to decline (reject) a report.
+    private const REVIEWER_ROLES = ['Public Health Nurse', 'Administrator', 'DOH'];
+
     /**
      * List submitted reports, optionally filtered by form, year, month,
      * region, province, municipality, barangay. Non-Administrator/DOH
@@ -61,6 +64,9 @@ class SubmitProgramReportController extends Controller
     /**
      * Store a program report submission, or update it if the same user
      * already submitted this form for this month/year.
+     *
+     * The location (region/province/municipality/barangays) is whatever the
+     * user had selected in the filter when they clicked Submit.
      */
     public function store(Request $request): JsonResponse
     {
@@ -80,24 +86,45 @@ class SubmitProgramReportController extends Controller
             'municipality_code' => ['nullable', 'string', 'max:255'],
             'barangay_codes'    => ['nullable', 'array'],
             'barangay_codes.*'  => ['string'],
+            // Only "rejected" can be requested; anything else defaults to "submitted".
+            'status'            => ['nullable', 'string', Rule::in(['rejected'])],
         ]);
 
-        // Match exactly the unique index: user_id + form + month + year.
-        $report = SubmitProgramReport::updateOrCreate(
-            [
-                'user_id' => $request->user()->id,
-                'form'    => $validated['form'],
-                'month'   => $validated['month'],
-                'year'    => $validated['year'],
-            ],
-            [
-                'region_code'       => $validated['region_code'] ?? null,
-                'province_code'     => $validated['province_code'] ?? null,
-                'municipality_code' => $validated['municipality_code'] ?? null,
-                'barangay_codes'    => $validated['barangay_codes'] ?? null,
-                'status'            => 'submitted', // never taken from the request
-            ]
-        );
+        $status = $validated['status'] ?? 'submitted';
+
+        // Declining is a reviewer-only action.
+        if ($status === 'rejected'
+            && !in_array($request->user()?->role, self::REVIEWER_ROLES, true)) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        // A report is identified by user + form + month + year + address.
+        $barangays = $this->normalizeCodes($validated['barangay_codes'] ?? null);
+
+        $report = SubmitProgramReport::query()
+            ->where('user_id', $request->user()->id)
+            ->where('form', $validated['form'])
+            ->where('month', $validated['month'])
+            ->where('year', $validated['year'])
+            ->where('region_code', $validated['region_code'] ?? null)
+            ->where('province_code', $validated['province_code'] ?? null)
+            ->where('municipality_code', $validated['municipality_code'] ?? null)
+            ->get()
+            ->first(fn ($r) => $this->normalizeCodes($r->barangay_codes) === $barangays);
+
+        $report ??= new SubmitProgramReport([
+            'user_id'           => $request->user()->id,
+            'form'              => $validated['form'],
+            'month'             => $validated['month'],
+            'year'              => $validated['year'],
+            'region_code'       => $validated['region_code'] ?? null,
+            'province_code'     => $validated['province_code'] ?? null,
+            'municipality_code' => $validated['municipality_code'] ?? null,
+            'barangay_codes'    => $validated['barangay_codes'] ?? null,
+        ]);
+
+        $report->status = $status;
+        $report->save();
 
         $report->load('user:id,name,email,role');
 
@@ -133,6 +160,17 @@ class SubmitProgramReportController extends Controller
         $submitProgramReport->delete();
 
         return response()->json(['message' => 'Report deleted.']);
+    }
+
+    /**
+     * Sorted, de-duplicated string list so barangay sets compare regardless of order.
+     */
+    private function normalizeCodes(?array $codes): array
+    {
+        $codes = array_values(array_unique(array_map('strval', $codes ?? [])));
+        sort($codes);
+
+        return $codes;
     }
 
     /**

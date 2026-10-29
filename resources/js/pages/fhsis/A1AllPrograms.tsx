@@ -22,7 +22,16 @@ interface A1AllProgramsProps {
   provinces?: Province[];
   municipalities?: Municipality[];
   barangays?: Barangay[];
-  onApplyFilter?: (month: string, year: string) => void;
+  onApplyFilter?: (
+    month: string,
+    year: string,
+    location?: {
+      region_code: string;
+      province_code: string;
+      municipality_code: string;
+      barangay_codes: string[];
+    },
+  ) => void;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -898,7 +907,15 @@ export default function A1AllPrograms({
   };
 
   const handleApplyFilter = async () => {
-    onApplyFilter?.(filters.month ?? '', filters.year ?? '');
+    const barangayCodes = isBHS && filters.barangays.length === 0
+      ? assignedBarangayCodes
+      : filters.barangays;
+    onApplyFilter?.(filters.month ?? '', filters.year ?? '', {
+      region_code: filters.region,
+      province_code: filters.province,
+      municipality_code: filters.municipality,
+      barangay_codes: barangayCodes,
+    });
     setIsLoading(true);
     setError(null);
 
