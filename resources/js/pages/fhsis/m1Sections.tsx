@@ -1,0 +1,1643 @@
+// Report sections of the M1 form (A–H), shared so other report pages
+// (e.g. A1 All Programs) can render the same tables from the same API data.
+import React from 'react';
+
+// ─── Data shape coming from PhoController@pho via Inertia props ─────────────
+export interface FamilyPlanningBrackets {
+  '10-14': number;
+  '15-19': number;
+  '20-49': number;
+  total: number;
+}
+
+export interface FamilyPlanningData {
+  demandSatisfied: FamilyPlanningBrackets;
+  currentUsersByMethod: Record<string, FamilyPlanningBrackets>;
+  currentUsersBeginningOfMonth: Record<string, FamilyPlanningBrackets>;
+  newAcceptorsPreviousMonth: Record<string, FamilyPlanningBrackets>;
+  otherAcceptorsPresentMonth: Record<string, FamilyPlanningBrackets>;
+  dropOutsPresentMonth: Record<string, FamilyPlanningBrackets>;
+  newAcceptorsPresentMonth: Record<string, FamilyPlanningBrackets>;
+}
+
+// Section B (Maternal Care) data shape from PhoController@getMaternalCareData
+export interface AgeBrackets {
+  '10-14': number;
+  '15-19': number;
+  '20-49': number;
+  total: number;
+}
+
+export interface SexBrackets {
+  male: number;
+  female: number;
+  total: number;
+}
+
+export interface MaternalCareData {
+  prenatal: Record<string, AgeBrackets>;
+  // Intrapartum/newborn indicators are bucketed by the MOTHER's age
+  // bracket (10-14/15-19/20-49/total), same as prenatal and postpartum.
+  intrapartum: Record<string, AgeBrackets>;
+  postpartum: Record<string, AgeBrackets>;
+}
+
+// Section C (Child Care) data shape from PhoController@getChildCareData
+export interface ChildCareData {
+  imm0_11: Record<string, SexBrackets>;
+  immPrev: Record<string, SexBrackets>;
+  schoolImm: Record<string, SexBrackets>;
+  nutrition: Record<string, SexBrackets>;
+  nutrition2: Record<string, SexBrackets>;
+  mgmtSick: Record<string, SexBrackets>;
+}
+
+// Section D (Oral Health) data shape from PhoController@getOralHealthData
+export interface OralHealthData {
+  infantFirstVisit: SexBrackets;
+  firstVisit: Record<string, SexBrackets>;
+  firstVisitFacility: Record<string, SexBrackets>;
+  firstVisitNonFacility: Record<string, SexBrackets>;
+  completed2Visits: Record<string, SexBrackets>;
+  completed2VisitsFacility: Record<string, SexBrackets>;
+  completed2VisitsNonFacility: Record<string, SexBrackets>;
+}
+
+// Section E (Non-Communicable Diseases) data shape from PhoController@getNonCommunicableDiseaseData
+export interface CervicalCancerTotals {
+  screened: number; via: number; papSmear: number; hpvDna: number; assessedOnly: number;
+  suspicious: number; suspiciousLinkedToCare: number; suspiciousLinkedTreated: number; suspiciousLinkedReferred: number;
+  precancerous: number; precancerousLinkedToCare: number; precancerousLinkedTreated: number; precancerousLinkedReferred: number;
+}
+export interface BreastCancerTotals {
+  seen: number; highRiskOrSymptomatic: number;
+  provided: number; providedCbe: number; providedMammogram: number;
+  remarkable: number; remarkableCbe: number; remarkableMammogram: number;
+  linkedToCare: number; linkedToCareCbe: number; linkedToCareMammogram: number;
+  asymptomaticScreened: number; asymptomaticCbe: number; asymptomaticMammogram: number;
+}
+export interface NonCommunicableDiseaseData {
+  lifestyle2059: Record<string, SexBrackets>;
+  lifestyle60plus: Record<string, SexBrackets>;
+  cvd2059: SexBrackets;
+  cvd60plus: SexBrackets;
+  dm2059: SexBrackets;
+  dm60plus: SexBrackets;
+  blindness: Record<string, SexBrackets>;
+  seniorImmunization: Record<string, SexBrackets>;
+  geriatricScreening: Record<string, SexBrackets>;
+  mentalHealth: Record<string, SexBrackets>;
+  cervical: CervicalCancerTotals;
+  breast: BreastCancerTotals;
+}
+
+// Section F (Environmental Health) data shape from PhoController@getEnvironmentalHealthData
+export interface EnvironmentalHealthData {
+  water: { levelI: number; levelII: number; levelIII: number; safelyManaged: number; total: number };
+  sanitation: {
+    pourFlushSeptic: number; pourFlushSewer: number; vip: number;
+    basicSanitationFacility: number; safelyManagedSanitation: number; total: number;
+  };
+}
+
+// Section G (Infectious Disease) data shape from PhoController@getInfectiousDiseaseData
+export interface InfectiousDiseaseData {
+  filariasis: Record<string, SexBrackets>;
+  rabies: Record<string, SexBrackets>;
+  schistosomiasis: Record<string, SexBrackets>;
+  sth: Record<string, SexBrackets>;
+  leprosy: Record<string, SexBrackets>;
+  hivAidsSti: Record<string, SexBrackets>;
+}
+
+// Section H (Vital Statistics) data shape from PhoReportController@vitalStatistics
+export interface VitalStatisticsData {
+  mortality: {
+    maternal: {
+      directResident: number;
+      directNonResident: number;
+      directTotal: number;
+      indirectResident: number;
+      indirectNonResident: number;
+      indirectTotal: number;
+      total: number;
+    };
+    infant: { male: number; female: number; total: number };
+  };
+  natality: {
+    liveBirths: number;
+    adolescent: { lt10: number; '10-14': number; '15-19': number };
+    repeatAdolescent: { '10-14': number; '15-19': number };
+  };
+}
+
+// ─── Reusable cell helpers ────────────────────────────────────────────────────
+export const Th = ({ children, className = '', rowSpan, colSpan }: { children?: React.ReactNode; className?: string; rowSpan?: number; colSpan?: number }) => (
+  <th rowSpan={rowSpan} colSpan={colSpan} className={`border border-gray-400 px-2 py-1 text-center text-xs font-semibold bg-gray-200 ${className}`}>
+    {children}
+  </th>
+);
+
+export const Td = ({ children, className = '', colSpan, rowSpan }: { children?: React.ReactNode; className?: string; colSpan?: number; rowSpan?: number }) => (
+  <td colSpan={colSpan} rowSpan={rowSpan} className={`border border-gray-400 px-2 py-1 text-xs ${className}`}>
+    {children}
+  </td>
+);
+
+export const InputCell = ({ className = '', value }: { className?: string; value?: number | string }) => (
+  <td className={`border border-gray-400 px-1 py-0.5 text-center text-xs ${className}`}>
+    {value ?? ''}
+  </td>
+);
+
+export const SectionHeader = ({ children, colSpan }: { children: React.ReactNode; colSpan: number }) => (
+  <tr className="bg-blue-700">
+    <td colSpan={colSpan} className="border border-gray-400 px-2 py-1 text-sm font-bold text-white text-center">
+      {children}
+    </td>
+  </tr>
+);
+
+const SubSectionHeader = ({ children, colSpan }: { children: React.ReactNode; colSpan: number }) => (
+  <tr className="bg-blue-100">
+    <td colSpan={colSpan} className="border border-gray-400 px-2 py-1 text-xs font-bold text-blue-900">
+      {children}
+    </td>
+  </tr>
+);
+
+// ─── Shared Helper Inputs ───────────────────────────────────────────────────
+const AgeInputs = () => (
+  <>
+    <InputCell /><InputCell /><InputCell /><InputCell />
+  </>
+);
+const SexInputs = () => (
+  <>
+    <InputCell /><InputCell /><InputCell />
+  </>
+);
+
+// ─── SECTION A: Family Planning ───────────────────────────────────────────────
+const methodKeyMap: Record<string, string> = {
+  '1. BTL': 'btl',
+  '2. NSV': 'nsv',
+  '3. Condom': 'condom',
+  'a. Pills-POP': 'pills-pop',
+  'b. Pills-COC': 'pills-coc',
+  '5. Injectables (DMPA)': 'injectable',
+  'a. Implants-Interval': 'implant-interval',
+  'b. Implants-PP': 'implant-pp',
+  'a. IUD-Interval': 'iud-interval',
+  'b. IUD-PP': 'iud-pp',
+  '8. NFP-LAM': 'lam',
+  '9. NFP-BBT': 'bbt',
+  '10. NFP-CMM': 'cmm',
+  '11. NFP-STM': 'stm',
+  '12. NFP-SDM': 'sdm',
+};
+
+const sumFamilyPlanningBrackets = (
+  data?: Record<string, FamilyPlanningBrackets>,
+): FamilyPlanningBrackets => {
+  const totals: FamilyPlanningBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
+  if (data) {
+    Object.values(data).forEach((counts) => {
+      totals['10-14'] += counts['10-14'] ?? 0;
+      totals['15-19'] += counts['15-19'] ?? 0;
+      totals['20-49'] += counts['20-49'] ?? 0;
+      totals.total += counts.total ?? 0;
+    });
+  }
+  return totals;
+};
+
+export const SectionA = ({ familyPlanning }: { familyPlanning?: FamilyPlanningData }) => {
+  const fpMethods = [
+    '1. BTL', '2. NSV', '3. Condom', '4. Pills', 'a. Pills-POP', 'b. Pills-COC',
+    '5. Injectables (DMPA)', '6. Implant', 'a. Implants-Interval', 'b. Implants-PP',
+    '7. IUD', 'a. IUD-Interval', 'b. IUD-PP',
+    '8. NFP-LAM', '9. NFP-BBT', '10. NFP-CMM', '11. NFP-STM', '12. NFP-SDM',
+    'Total Current Users',
+  ];
+
+  // Column groups in on-screen order (A2 table): Current Users (Beginning of the
+  // Month), New Acceptors (Previous Month), Other Acceptors (Present Month),
+  // Drop-outs (Present Month), Current Users (End of the Month). "New Acceptors
+  // (Present Month)" has no backing data yet, so it's left undefined/blank.
+  const columnGroups: (Record<string, FamilyPlanningBrackets> | undefined)[] = [
+    familyPlanning?.currentUsersBeginningOfMonth,
+    familyPlanning?.newAcceptorsPreviousMonth,
+    familyPlanning?.otherAcceptorsPresentMonth,
+    familyPlanning?.dropOutsPresentMonth,
+    familyPlanning?.currentUsersByMethod,
+    familyPlanning?.newAcceptorsPresentMonth,
+  ];
+
+  const columnGroupTotals: (FamilyPlanningBrackets | undefined)[] = [
+    sumFamilyPlanningBrackets(familyPlanning?.currentUsersBeginningOfMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.newAcceptorsPreviousMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.otherAcceptorsPresentMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.dropOutsPresentMonth),
+    sumFamilyPlanningBrackets(familyPlanning?.currentUsersByMethod),
+    sumFamilyPlanningBrackets(familyPlanning?.newAcceptorsPresentMonth),
+  ];
+
+  return (
+    <div className="mb-6 space-y-4">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={6}>SECTION A. FAMILY PLANNING SERVICES FOR WOMEN OF REPRODUCTIVE AGE</SectionHeader>
+
+          <tr className="bg-gray-100">
+            <td colSpan={6} className="border border-gray-400 px-2 py-1 font-semibold text-xs">
+              A1. Demand Satisfied
+            </td>
+          </tr>
+          <tr className="bg-gray-50">
+            <Th className="text-left w-1/2">Indicators</Th>
+            <Th>Age Group</Th>
+            <Th colSpan={3}>Total WRA 15-49 yrs old</Th>
+            <Th>Remarks</Th>
+          </tr>
+          <tr className="bg-gray-50">
+            <Th className="text-left"></Th>
+            <Th>10-14 yrs old</Th>
+            <Th>15-19 yrs old</Th>
+            <Th colSpan={2}>20-49 yrs old</Th>
+            <Th></Th>
+          </tr>
+          <tr>
+            <Td className="w-1/2 pl-4">
+              1. No. of women of reproductive age (WRA) 15-49 years old who have demand for Family Planning (FP) and currently using, or whose partner is currently using, any modern FP methods
+            </Td>
+            <InputCell value="" />
+            <InputCell value="" />
+            <InputCell value="" />
+            <InputCell value=""/>
+            <InputCell />
+          </tr>
+        </tbody>
+      </table>
+
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <tr className="bg-gray-100">
+            <Th className="text-left" rowSpan={3}>A2. Modern FP Methods</Th>
+            <Th colSpan={4}>Current Users (Beginning of the Month)</Th>
+            <Th colSpan={8}>Acceptors</Th>
+            <Th colSpan={4}>Drop-outs (Present Month)</Th>
+            <Th colSpan={4}>Current User (End of the Month)</Th>
+            <Th colSpan={4}>New Acceptors (Present Month)</Th>
+          </tr>
+          <tr className="bg-gray-50">
+            <Th colSpan={4}>Age Group / TOTAL</Th>
+            <Th colSpan={4}>New Acceptors (Previous Month)</Th>
+            <Th colSpan={4}>Other Acceptors (Present Month)</Th>
+            <Th colSpan={4}>Age Group / TOTAL</Th>
+            <Th colSpan={4}>Age Group / TOTAL</Th>
+            <Th colSpan={4}>Age Group / TOTAL</Th>
+          </tr>
+          <tr className="bg-gray-50">
+            {[0, 1, 2, 3, 4, 5].map(i => (
+              <React.Fragment key={i}>
+                <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th>
+              </React.Fragment>
+            ))}
+          </tr>
+          {fpMethods.map((m, i) => {
+            const isTotal = m.startsWith('Total');
+            const key = methodKeyMap[m];
+
+            return (
+              <tr key={i} className={isTotal ? 'bg-yellow-50 font-semibold' : ''}>
+                <Td className={`${m.startsWith('a.') || m.startsWith('b.') ? 'pl-8' : 'pl-4'}`}>{m}</Td>
+                {[0, 1, 2, 3, 4, 5].map(j => {
+                  const counts: FamilyPlanningBrackets | undefined = isTotal
+                    ? columnGroupTotals[j]
+                    : key
+                      ? columnGroups[j]?.[key]
+                      : undefined;
+                  return (
+                    <React.Fragment key={j}>
+                      <InputCell value={counts?.['10-14']} />
+                      <InputCell value={counts?.['15-19']} />
+                      <InputCell value={counts?.['20-49']} />
+                      <InputCell value={counts?.total} />
+                    </React.Fragment>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION B: Maternal Care ─────────────────────────────────────────────────
+const sumAgeBrackets = (
+  data: Record<string, AgeBrackets> | undefined,
+  keys: string[],
+): AgeBrackets | undefined => {
+  if (!data) return undefined;
+  const result: AgeBrackets = { '10-14': 0, '15-19': 0, '20-49': 0, total: 0 };
+  let found = false;
+  keys.forEach((k) => {
+    const b = data[k];
+    if (b) {
+      found = true;
+      result['10-14'] += b['10-14'];
+      result['15-19'] += b['15-19'];
+      result['20-49'] += b['20-49'];
+      result.total += b.total;
+    }
+  });
+  return found ? result : undefined;
+};
+
+const AgeInputsFromData = ({ data }: { data?: AgeBrackets }) => (
+  <>
+    <InputCell value={data?.['10-14']} />
+    <InputCell value={data?.['15-19']} />
+    <InputCell value={data?.['20-49']} />
+    <InputCell value={data?.total} />
+  </>
+);
+
+export const SectionB = ({ maternalCare }: { maternalCare?: MaternalCareData }) => {
+  const prenatal = maternalCare?.prenatal;
+  const intrapartum = maternalCare?.intrapartum;
+  const postpartum = maternalCare?.postpartum;
+
+  const leftValueKeys: (string | undefined)[] = [
+    undefined, undefined, 'anc8Completed', 'anc8A1', 'anc8A2', 'anc81B', 'anc8B1', 'anc8B2', 'anc8B3',
+    'nutritionAssessed', 'nutritionNormal', 'nutritionLow', 'nutritionHigh',
+    undefined, 'td2PlusFirstPregnancy', 'td2Plus',
+  ];
+  const rightValueKeys: (string | undefined)[] = [
+    undefined, 'ifaCompleted', 'mmCompleted', 'ccCompleted',
+    undefined, 'anemiaScreened', 'anemiaDiagnosed',
+    undefined, 'gdmScreened', 'gdmDiagnosed',
+    undefined, 'dewormed',
+    undefined, 'bpMeasured', 'highBpOrDanger', 'referred',
+  ];
+
+  const intraLeftValueKeys: (string | string[] | undefined)[] = [
+    'totalDeliveries',
+    ['attendantPhysician', 'attendantNurse', 'attendantMidwife'],
+    'attendantPhysician', 'attendantNurse', 'attendantMidwife',
+    ['facilityPublic', 'facilityPrivate'],
+    'facilityPublic', 'facilityPrivate',
+    ['deliveryVaginal', 'deliveryCesarean', 'deliveryCombined'],
+    'deliveryVaginal', 'deliveryCesarean', 'deliveryCombined',
+  ];
+  const intraRightValueKeys: (string | string[] | undefined)[] = [
+    ['outcomeFullTerm', 'outcomePreTerm', 'outcomeFetalDeath'],
+    'outcomeFullTerm', 'outcomePreTerm', 'outcomeFetalDeath', 'outcomeAbortion',
+    ['birthWeightNormal', 'birthWeightLow', 'birthWeightUnknown'],
+    'birthWeightNormal', 'birthWeightLow', 'birthWeightUnknown',
+  ];
+
+  const pncLeftValueKeys: (string | undefined)[] = [
+    undefined, 'pnc4Completed', 'pnc4A1', 'pnc4A2', 'pnc41B', 'pnc4B1', 'pnc4B2', 'pnc4B3',
+  ];
+  const pncRightValueKeys: (string | undefined)[] = [
+    undefined, 'ifaCompleted', 'vitACompleted',
+    undefined, 'bpMeasured', 'highBpOrDanger', 'referred',
+  ];
+
+  const leftIndicators: [string, number][] = [
+    ['PRENATAL CARE SERVICES', 0],
+    ['1. 8ANC', 1],
+    ['1a. No. of Women who delivered and completed at least 8ANC =(a1+a2)', 2],
+    ['a1. No. of Women who delivered and Provided 1st to 8th ANC on schedule (Resident)', 3],
+    ['a2. No. of Women who delivered and completed at least 8ANC TRANS-IN from other LGUs', 3],
+    ['1b. No. of Women who delivered and who were tracked during pregnancy =(b1+b2)', 2],
+    ['b1. No. of Women who delivered and who were tracked during pregnancy (Resident)', 3],
+    ['b2. No. of TRANS-IN from other LGUs', 3],
+    ['b3. No. of TRANS-OUT (with MOV) before completing 8ANC', 3],
+    ['2. No. of pregnant women assessed for nutritional status during the first trimester', 1],
+    ['2a. Normal BMI', 2],
+    ['2b. Low BMI', 2],
+    ['2c. High BMI', 2],
+    ['3. Tetanus diphtheria (Td) Containing Vaccination Status', 1],
+    ['3a. Number of women pregnant for the first time given at least 2 doses of Td vaccination', 2],
+    ['3b. Number of Pregnant Women for the 2nd or more times given at least 3 doses of Td vaccination (Td2 Plus)', 2],
+  ];
+  const rightIndicators: [string, number][] = [
+    ['4. Prenatal Supplementation', 1],
+    ['4a. Number of pregnant women who completed the dose of Iron with Folic Acid supplementation', 2],
+    ['4b. No. of pregnant women who completed the dose Multiple Micronutrient Supplementation', 2],
+    ['4c. No. of pregnant women who completed the dose of Calcium carbonate', 2],
+    ['5. Anemia Screening', 1],
+    ['9a. No of pregnant women screened for Anemia', 2],
+    ['9b. No of pregnant women diagnosed with Anemia', 2],
+    ['6. Gestational Diabetes Screening', 1],
+    ['6a. No of pregnant women screened for Gestational Diabetes Melitus', 2],
+    ['6b. No of pregnant women tested positive for Gestational Diabetes Melitus', 2],
+    ['7. Deworming', 1],
+    ['5a. No. of pregnant women given one dose of deworming tablet', 2],
+    ['8. BP measurement', 1],
+    ['8a. No. of pregnant women who had their BP measured during each of their antenatal care visit', 2],
+    ['8b1. No. of pregnant women identified with high BP or danger signs', 2],
+    ['8b2. No. of pregnant women with high BP or danger signs who were referred to a higher-level facility', 2],
+  ];
+
+  const indentClass = (n: number) => ['font-bold', 'pl-2', 'pl-4', 'pl-6'][Math.min(n, 3)];
+
+  const intraLeft: [string, number][] = [
+    ['1. Total Deliveries', 1],
+    ['2. No. of deliveries attended by Skilled Health Professionals (SHP) =(2a+2b+2c)', 1],
+    ['2a. Physicians', 2], ['2b. Nurses', 2], ['2c. Midwives', 2],
+    ['3. No. of Facility Based Deliveries (FBD) =(3a+3b)', 1],
+    ['3a. Public facility', 2], ['3b. Private facility', 2],
+    ['4. Delivery by Type =(4a+4b+4c)', 1],
+    ['4a. No. of Vaginal deliveries', 2], ['4b. No. of Cesarean Section', 2],
+    ['4c. No. of Combined Vaginal-Cesarean deliveries', 2],
+  ];
+  const intraRight: [string, number][] = [
+    ['5. Delivery by Outcome =(5a+5b+5c)', 1],
+    ['5a. No. of Full-Term deliveries', 2], ['5b. No. of Pre-Term deliveries', 2],
+    ['5c. No. of Fetal deaths', 2], ['5d. No. of abortion/miscarriage (counts only)', 2],
+    ['6. No. of Livebirths by birth weight =(6a+6b+6c) — Male | Female | TOTAL', 1],
+    ['6b. Normal birth weight', 2], ['6c. Low birth weight', 2], ['6d. Unknown birth weight', 2],
+  ];
+  const pncLeft: [string, number][] = [
+    ['1. 4PNC', 1],
+    ['1a. Total No. of women who delivered and completed at least 4PNC =(a1+a2)', 2],
+    ['a1. No. of women who delivered and provided 1st to 4th PNC on schedule (Resident)', 3],
+    ['a2. No. of women delivered and completed at least 4PNC TRANS IN from other LGUs', 3],
+    ['1b. Total No. of women due for PNC =(b1+b2)', 2],
+    ['b1. No. of women due for PNC (Resident)', 3],
+    ['b2. No. of TRANS-IN from other LGUs due for PNC', 3],
+    ['b3. No. of TRANS-OUT (with MOV) before completing 4PNC', 3],
+  ];
+  const pncRight: [string, number][] = [
+    ['2. Postpartum Supplementation', 1],
+    ['2a. Number of postpartum women who completed the dose of Iron with Folic Acid Supplementation', 2],
+    ['2b. Number of postpartum women who completed the dose of Vitamin A supplementation', 2],
+    ['2. BP measurement', 1],
+    ['1a. No. of postpartum women who had their BP measured during each of their postnatal care visit', 2],
+    ['2b1. No. of postpartum women identified with high BP or danger signs', 2],
+    ['2b2. No. of postpartum women with high BP or danger signs who were referred to a higher-level facility', 2],
+  ];
+
+  const maxLen = Math.max(leftIndicators.length, rightIndicators.length);
+  const maxIntra = Math.max(intraLeft.length, intraRight.length);
+  const maxPnc = Math.max(pncLeft.length, pncRight.length);
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={12}>SECTION B. MATERNAL CARE AND SERVICES</SectionHeader>
+          
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxLen }).map((_, i) => {
+            const [lLabel, lIndent] = leftIndicators[i] ?? ['', 1];
+            const [rLabel, rIndent] = rightIndicators[i] ?? ['', 1];
+            const isLSection = lIndent === 0;
+            const lData = prenatal?.[leftValueKeys[i] ?? ''];
+            const rData = prenatal?.[rightValueKeys[i] ?? ''];
+            return (
+              <tr key={i} className={isLSection ? 'bg-blue-50' : ''}>
+                <Td className={`w-1/4 ${indentClass(lIndent)} ${isLSection ? 'font-bold' : ''}`}>{lLabel}</Td>
+                {isLSection ? <td colSpan={5} className="border border-gray-400"></td> :
+                  <><AgeInputsFromData data={lData} /><InputCell /></>}
+                <Td className={`w-1/4 ${indentClass(rIndent)}`}>{rLabel}</Td>
+                {rLabel ? <><AgeInputsFromData data={rData} /><InputCell /></> :
+                  <td colSpan={5} className="border border-gray-400"></td>}
+              </tr>
+            );
+          })}
+
+          {/* Intrapartum */}
+          <tr className="bg-gray-100">
+            <Th className="text-left" colSpan={6}>INTRAPARTUM AND NEWBORN CARE</Th>
+            <Th className="text-left" colSpan={6}>&nbsp;</Th>
+          </tr>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxIntra }).map((_, i) => {
+            const [lLabel, lIndent] = intraLeft[i] ?? ['', 1];
+            const [rLabel, rIndent] = intraRight[i] ?? ['', 1];
+            const lKeys = intraLeftValueKeys[i];
+            const rKeys = intraRightValueKeys[i];
+            const lData = Array.isArray(lKeys) ? sumAgeBrackets(intrapartum, lKeys) : intrapartum?.[lKeys ?? ''];
+            const rData = Array.isArray(rKeys) ? sumAgeBrackets(intrapartum, rKeys) : intrapartum?.[rKeys ?? ''];
+            return (
+              <tr key={i}>
+                <Td className={`w-1/4 ${indentClass(lIndent)}`}>{lLabel}</Td>
+                {lLabel ? <><AgeInputsFromData data={lData} /><InputCell /></> :
+                  <td colSpan={5} className="border border-gray-400"></td>}
+                <Td className={`w-1/4 ${indentClass(rIndent)}`}>{rLabel}</Td>
+                {rLabel ? <><AgeInputsFromData data={rData} /><InputCell /></> :
+                <td colSpan={5} className="border border-gray-400"></td>}
+              </tr>
+            );
+          })}
+
+          {/* PNC */}
+          <SubSectionHeader colSpan={12}>POSTPARTUM CARE</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/4">Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxPnc }).map((_, i) => {
+            const [lLabel, lIndent] = pncLeft[i] ?? ['', 1];
+            const [rLabel, rIndent] = pncRight[i] ?? ['', 1];
+            const lData = postpartum?.[pncLeftValueKeys[i] ?? ''];
+            const rData = postpartum?.[pncRightValueKeys[i] ?? ''];
+            return (
+              <tr key={i}>
+                <Td className={`w-1/4 ${indentClass(lIndent)}`}>{lLabel}</Td>
+                {lLabel ? <><AgeInputsFromData data={lData} /><InputCell /></> :
+                  <td colSpan={5} className="border border-gray-400"></td>}
+                <Td className={`w-1/4 ${indentClass(rIndent)}`}>{rLabel}</Td>
+                {rLabel ? <><AgeInputsFromData data={rData} /><InputCell /></> :
+                  <td colSpan={5} className="border border-gray-400"></td>}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION C: Child Care ────────────────────────────────────────────────────
+const SexInputsFromData = ({ data }: { data?: SexBrackets }) => (
+  <>
+    <InputCell value={data?.male} />
+    <InputCell value={data?.female} />
+    <InputCell value={data?.total} />
+  </>
+);
+
+export const SectionC = ({ childCare }: { childCare?: ChildCareData }) => {
+  const imm0_11: [string, number, string][] = [
+    ['1. Children protected at birth (CPAB)', 1, ''],
+    ['2. BCG (within 24 hours)', 1, '10. OPV 2'],
+    ['3. BCG (more than 24 hours to 11 months and 29 days)', 1, '11. OPV 3'],
+    ['4. Hep B antigen within 24 hrs after birth', 1, '12. IPV 1'],
+    ['5. Hep B antigen more than 24 hrs up to 14 days', 1, '13. IPV 2'],
+    ['6. DPT-HiB-HepB 1', 1, '14. PCV 1'],
+    ['7. DPT-HiB-HepB 2', 1, '15. PCV 2'],
+    ['8. DPT-HiB-HepB 3', 1, '16. PCV 3'],
+    ['9. OPV 1', 1, '17. MMR 1'],
+  ];
+  const imm0_11LeftKeys: (string | undefined)[] = [
+    'cpab', 'bcg24h', 'bcgLate', 'hepB24h', 'hepBLate', 'dpt1', 'dpt2', 'dpt3', 'opv1',
+  ];
+  const imm0_11RightKeys: (string | undefined)[] = [
+    undefined, 'opv2', 'opv3', 'ipv1', 'ipv2', 'pcv1', 'pcv2', 'pcv3', 'mmr1',
+  ];
+
+  const imm_prev: [string, string][] = [
+    ['1. DPT-HiB-HepB 1', '9. PCV 1'],
+    ['2. DPT-HiB-HepB 2', '10. PCV 2'],
+    ['3. DPT-HiB-HepB 3', '11. PCV 3'],
+    ['4. OPV 1', '12. MMR 1'],
+    ['5. OPV 2', '13. MMR 2'],
+    ['6. OPV 3', '14. FIC'],
+    ['7. IPV 1', '15. CIC'],
+    ['8. IPV 2', ''],
+  ];
+  const immPrevLeftKeys: (string | undefined)[] = [
+    'dpt1', 'dpt2', 'dpt3', 'opv1', 'opv2', 'opv3', 'ipv1', 'ipv2',
+  ];
+  const immPrevRightKeys: (string | undefined)[] = [
+    'pcv1', 'pcv2', 'pcv3', 'mmr1', 'mmr2', 'fic', 'cic', undefined,
+  ];
+
+  const schoolImm: [string, string][] = [
+    ['1. Grade 1 learners given Td', '5. HPV 1 (SBI)'],
+    ['2. Grade 1 learners given MR', '6. HPV 1 (CBI)'],
+    ['3. Grade 7 learners given Td', '7. HPV 2 (CBI)'],
+    ['4. Grade 7 learners given MR', ''],
+  ];
+  const schoolImmLeftKeys: (string | undefined)[] = ['grade1Td', 'grade1Mr', 'grade7Td', 'grade7Mr'];
+  const schoolImmRightKeys: (string | undefined)[] = ['hpv1Sbi', 'hpv1Cbi', 'hpv2Cbi', undefined];
+
+  const nutrition: [string, string][] = [
+    ['1. Newborns who were initiated on breastfeeding within 1 hour after birth', '4a. Infants aged 6-11 months old who completed routine MNP supplementation'],
+    ['2. Infants born with low birth weight (LBW) given complete Iron supplements', '4b. Children aged 12-23 months old who completed routine MNP supplementation'],
+    ['3a. Infants aged 6-11 months old who received 1 dose of Vitamin A supplementation', '5a. Infants aged 6-11 months old who completed routine LNS-SQ supplementation'],
+    ['3b. Children aged 12-59 months old who completed 2 doses of Vitamin A Supplementation', '5b. Children aged 12-23 months old who completed routine LNS-SQ supplementation'],
+  ];
+  const nutritionLeftKeys: (string | undefined)[] = ['breastfeedingInit', 'lbwIronComplete', 'vitA6to11', 'vitA12to59TwoDoses'];
+  const nutritionRightKeys: (string | undefined)[] = ['mnp6to11', 'mnp12to23', 'lns6to11', 'lns12to23'];
+
+  const nutrition2: [string, string][] = [
+    ['6. Children 0-59 months old SEEN during the reporting period at health facilities', '7d. Died'],
+    ['6a. Identified MAM', '8. SAM without complication admitted to OTC'],
+    ['6b. Identified SAM', '8a. Cured'],
+    ['7. MAM enrolled to SFP', '8b. Non-cured'],
+    ['7a. Cured', '8c. Defaulted'],
+    ['7b. Non-cured', '8d. Died'],
+    ['7c. Defaulted', ''],
+  ];
+  const nutrition2LeftKeys: (string | undefined)[] = [
+    'seen0to59', 'mamIdentified', 'samIdentified', 'mamEnrolled', 'mamCured', 'mamNonCured', 'mamDefaulted',
+  ];
+  const nutrition2RightKeys: (string | undefined)[] = [
+    'mamDied', 'samAdmitted', 'samCured', 'samNonCured', 'samDefaulted', 'samDied', undefined,
+  ];
+
+  const mgmtSick: [string, string][] = [
+    ['1. Sick infants aged 6-11 months old seen', '4. Pneumonia cases 0-59 months old seen'],
+    ['1a. Sick infants aged 6-11 months old who received Vitamin A capsule aside from routine supplementation', '4a. 0-59 months old with pneumonia who received antibiotic treatment'],
+    ['2. Sick infants aged 12-59 months old seen', 'a. Amoxicillin drops suspension'],
+    ['2a. Sick infants aged 12-59 months old who received Vitamin A capsule aside from routine supplementation', 'b. Amoxicillin-clavulanate suspension'],
+    ['3. Acute diarrhea cases 0-59 months old seen', 'c. Cefuroxime suspension'],
+    ['3a. 0-59 months old with acute diarrhea who received ORS only', 'd. Other antibiotics'],
+    ['3b. 0-59 months old with acute diarrhea who received ORS and Zinc drops/syrup', ''],
+  ];
+  const mgmtSickLeftKeys: (string | undefined)[] = [
+    'sick6to11Seen', 'vitA6to11Sick', 'sick12to59Seen', 'vitA12to59Sick', 'diarrhea0to59Seen', 'orsOnly', 'orsZinc',
+  ];
+  const mgmtSickRightKeys: (string | undefined)[] = [
+    'pneumonia0to59Seen', 'antibioticAny', 'amoxDrops', 'amoxClav', 'cefuroxime', 'otherAntibiotic', undefined,
+  ];
+
+  const TwoColSexTable = ({
+    rows, dataset, leftKeys, rightKeys,
+  }: {
+    rows: [string, string][];
+    dataset?: Record<string, SexBrackets>;
+    leftKeys?: (string | undefined)[];
+    rightKeys?: (string | undefined)[];
+  }) => (
+    <>
+      {rows.map(([l, r], i) => (
+        <tr key={i}>
+          <Td className="pl-4 w-1/3">{l}</Td>
+          <SexInputsFromData data={dataset?.[leftKeys?.[i] ?? '']} /><InputCell />
+          <Td className="pl-4 w-1/3">{r}</Td>
+          {r ? <><SexInputsFromData data={dataset?.[rightKeys?.[i] ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+        </tr>
+      ))}
+    </>
+  );
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>SECTION C. CHILD CARE AND SERVICES</SectionHeader>
+
+          <SubSectionHeader colSpan={10}>IMMUNIZATION</SubSectionHeader>
+          <SubSectionHeader colSpan={10}>A.1. Immunization Services (0-11 months old current year)</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-1/3">Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-1/3">Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {imm0_11.map(([l, , r], i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-1/3">{l}</Td>
+              <SexInputsFromData data={childCare?.imm0_11?.[imm0_11LeftKeys[i] ?? '']} /><InputCell />
+              <Td className="pl-4 w-1/3">{r}</Td>
+              {r ? <><SexInputsFromData data={childCare?.imm0_11?.[imm0_11RightKeys[i] ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>A.2. Immunization Services (0-11 months of previous year)</SubSectionHeader>
+          <TwoColSexTable rows={imm_prev} dataset={childCare?.immPrev} leftKeys={immPrevLeftKeys} rightKeys={immPrevRightKeys} />
+
+          <SubSectionHeader colSpan={10}>A.3. School and Community-Based Immunization</SubSectionHeader>
+          <TwoColSexTable rows={schoolImm} dataset={childCare?.schoolImm} leftKeys={schoolImmLeftKeys} rightKeys={schoolImmRightKeys} />
+
+          <SubSectionHeader colSpan={10}>NUTRITION</SubSectionHeader>
+          <TwoColSexTable rows={nutrition} dataset={childCare?.nutrition} leftKeys={nutritionLeftKeys} rightKeys={nutritionRightKeys} />
+          <TwoColSexTable rows={nutrition2} dataset={childCare?.nutrition2} leftKeys={nutrition2LeftKeys} rightKeys={nutrition2RightKeys} />
+
+          <SubSectionHeader colSpan={10}>MANAGEMENT OF SICK</SubSectionHeader>
+          <TwoColSexTable rows={mgmtSick} dataset={childCare?.mgmtSick} leftKeys={mgmtSickLeftKeys} rightKeys={mgmtSickRightKeys} />
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION D: Oral Health ───────────────────────────────────────────────────
+type OhcMode = 'first' | 'firstFacility' | 'firstNonFacility' | 'completed' | 'completedFacility' | 'completedNonFacility';
+const ohcBracketKeyMap: Record<string, string> = {
+  '1. Children 1-4 years old who had their 1st visit to an oral health care professional within a year': 'children1_4',
+  '1a. Children 1-4 years old who had their 1st visit to a facility-based oral health care professional within a year': 'children1_4',
+  '1b. Children 1-4 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'children1_4',
+  '2. Children 5-9 years old who had their 1st visit to an oral health care professional within a year': 'children5_9',
+  '2a. Children 5-9 years old who had their 1st visit to a facility-based oral health care professional within a year': 'children5_9',
+  '2b. Children 5-9 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'children5_9',
+  '3. Adolescents 10-19 years old who had their 1st visit to an oral health care professional within a year': 'adolescents10_19',
+  '3a. Adolescents 10-19 years old who had their 1st visit to a facility-based oral health care professional within a year': 'adolescents10_19',
+  '3b. Adolescents 10-19 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'adolescents10_19',
+  '4. Adults 20-59 years old who had their 1st visit to an oral health care professional within a year': 'adults20_59',
+  '4a. Adults 20-59 years old who had their 1st visit to a facility-based oral health care professional within a year': 'adults20_59',
+  '4b. Adults 20-59 years old who had their 1st visit to a non-facility-based oral health care professional within a year': 'adults20_59',
+  '5. Senior Citizens 60 years old and above who had their 1st visit to an oral health care professional within a year': 'seniors60plus',
+  '5a. Senior Citizens 60 years old and above who had their 1st visit to a facility-based oral health care professional within a year': 'seniors60plus',
+  '5b. Senior Citizens 60 years old and above who had their 1st visit to a non-facility-based oral health care professional within a year': 'seniors60plus',
+  '6. Pregnant Women who had their 1st visit to an oral health care professional within a year': 'pregnant',
+  '6a. Pregnant Women who had their 1st visit to a facility-based oral health care professional within a year': 'pregnant',
+  '6b. Pregnant Women who had their 1st visit to a non-facility-based oral health care professional within a year': 'pregnant',
+  '1. Children 1-4 years old who completed 2 visits to an oral health care professional within a year': 'children1_4',
+  '1a. Children 1-4 years old who completed 2 visits to a facility-based oral health care professional within a year': 'children1_4',
+  '1b. Children 1-4 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'children1_4',
+  '2. Children 5-9 years old who completed 2 visits to an oral health care professional within a year': 'children5_9',
+  '2a. Children 5-9 years old who completed 2 visits to a facility-based oral health care professional within a year': 'children5_9',
+  '2b. Children 5-9 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'children5_9',
+  '3. Adolescents 10-19 years old who completed 2 visits to an oral health care professional within a year': 'adolescents10_19',
+  '3a. Adolescents 10-19 years old who completed 2 visits to a facility-based oral health care professional within a year': 'adolescents10_19',
+  '3b. Adolescents 10-19 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'adolescents10_19',
+  '4. Adults 20-59 years old who completed 2 visits to an oral health care professional within a year': 'adults20_59',
+  '4a. Adults 20-59 years old who completed 2 visits to a facility-based oral health care professional within a year': 'adults20_59',
+  '4b. Adults 20-59 years old who completed 2 visits to a non-facility-based oral health care professional within a year': 'adults20_59',
+  '5. Senior Citizens 60 years old and above who completed 2 visits to an oral health care professional within a year': 'seniors60plus',
+  '5a. Senior Citizens 60 years old and above who completed 2 visits to a facility-based oral health care professional within a year': 'seniors60plus',
+  '5b. Senior Citizens 60 years old and above who completed 2 visits to a non-facility-based oral health care professional within a year': 'seniors60plus',
+  '6. Pregnant Women who completed 2 visits to an oral health care professional within a year': 'pregnant',
+  '6a. Pregnant Women who completed 2 visits to a facility-based oral health care professional within a year': 'pregnant',
+  '6b. Pregnant Women who completed 2 visits to a non-facility-based oral health care professional within a year': 'pregnant',
+};
+const ohcModeForLabel = (label: string): OhcMode => {
+  const isCompleted = label.includes('completed 2 visits');
+  if (label.includes('facility-based') && !label.includes('non-facility')) {
+    return isCompleted ? 'completedFacility' : 'firstFacility';
+  }
+  if (label.includes('non-facility-based')) {
+    return isCompleted ? 'completedNonFacility' : 'firstNonFacility';
+  }
+  return isCompleted ? 'completed' : 'first';
+};
+const ohcDataset = (oralHealth: OralHealthData | undefined, mode: OhcMode): Record<string, SexBrackets> | undefined => {
+  if (!oralHealth) return undefined;
+  return {
+    first: oralHealth.firstVisit,
+    firstFacility: oralHealth.firstVisitFacility,
+    firstNonFacility: oralHealth.firstVisitNonFacility,
+    completed: oralHealth.completed2Visits,
+    completedFacility: oralHealth.completed2VisitsFacility,
+    completedNonFacility: oralHealth.completed2VisitsNonFacility,
+  }[mode];
+};
+
+export const SectionD = ({ oralHealth }: { oralHealth?: OralHealthData }) => {
+  const firstVisitLeft: [string, number][] = [
+    ['FIRST VISIT TO AN ORAL HEALTH CARE PROFESSIONAL', 0],
+    ['1. Infants 0-11 months old who had their first dental visit', 1],
+    ['1. Children 1-4 years old who had their 1st visit to an oral health care professional within a year', 1],
+    ['1a. Children 1-4 years old who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['1b. Children 1-4 years old who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+    ['2. Children 5-9 years old who had their 1st visit to an oral health care professional within a year', 1],
+    ['2a. Children 5-9 years old who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['2b. Children 5-9 years old who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+    ['3. Adolescents 10-19 years old who had their 1st visit to an oral health care professional within a year', 1],
+    ['3a. Adolescents 10-19 years old who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['3b. Adolescents 10-19 years old who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+    ['4. Adults 20-59 years old who had their 1st visit to an oral health care professional within a year', 1],
+    ['4a. Adults 20-59 years old who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['4b. Adults 20-59 years old who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+    ['5. Senior Citizens 60 years old and above who had their 1st visit to an oral health care professional within a year', 1],
+    ['5a. Senior Citizens 60 years old and above who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['5b. Senior Citizens 60 years old and above who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+    ['6. Pregnant Women who had their 1st visit to an oral health care professional within a year', 1],
+    ['6a. Pregnant Women who had their 1st visit to a facility-based oral health care professional within a year', 2],
+    ['6b. Pregnant Women who had their 1st visit to a non-facility-based oral health care professional within a year', 2],
+  ];
+  const completedLeft: [string, number][] = [
+    ['1. Children 1-4 years old who completed 2 visits to an oral health care professional within a year', 1],
+    ['1a. Children 1-4 years old who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['1b. Children 1-4 years old who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+    ['2. Children 5-9 years old who completed 2 visits to an oral health care professional within a year', 1],
+    ['2a. Children 5-9 years old who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['2b. Children 5-9 years old who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+    ['3. Adolescents 10-19 years old who completed 2 visits to an oral health care professional within a year', 1],
+    ['3a. Adolescents 10-19 years old who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['3b. Adolescents 10-19 years old who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+    ['4. Adults 20-59 years old who completed 2 visits to an oral health care professional within a year', 1],
+    ['4a. Adults 20-59 years old who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['4b. Adults 20-59 years old who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+    ['5. Senior Citizens 60 years old and above who completed 2 visits to an oral health care professional within a year', 1],
+    ['5a. Senior Citizens 60 years old and above who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['5b. Senior Citizens 60 years old and above who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+    ['6. Pregnant Women who completed 2 visits to an oral health care professional within a year', 1],
+    ['6a. Pregnant Women who completed 2 visits to a facility-based oral health care professional within a year', 2],
+    ['6b. Pregnant Women who completed 2 visits to a non-facility-based oral health care professional within a year', 2],
+  ];
+  const indentClass = (n: number) => ['font-bold', 'pl-2', 'pl-4'][Math.min(n, 2)];
+  const maxLen = Math.max(firstVisitLeft.length, completedLeft.length);
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>SECTION D. ORAL HEALTH CARE SERVICES</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators (1st Visit)</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators (Completed 2 Visits)</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxLen }).map((_, i) => {
+            const [lLabel, lIndent] = firstVisitLeft[i] ?? ['', 1];
+            const [rLabel, rIndent] = completedLeft[i] ?? ['', 1];
+
+            const lData = lLabel.startsWith('1. Infants 0-11 months old')
+              ? oralHealth?.infantFirstVisit
+              : ohcDataset(oralHealth, ohcModeForLabel(lLabel))?.[ohcBracketKeyMap[lLabel]];
+            const rData = ohcDataset(oralHealth, ohcModeForLabel(rLabel))?.[ohcBracketKeyMap[rLabel]];
+
+            return (
+              <tr key={i} className={lIndent === 0 ? 'bg-blue-50' : ''}>
+                <Td className={`w-5/12 ${indentClass(lIndent)}`}>{lLabel}</Td>
+                {lIndent === 0 ? <td colSpan={4} className="border border-gray-400"></td> :
+                  <><SexInputsFromData data={lData} /><InputCell /></>}
+                <Td className={`w-5/12 ${indentClass(rIndent ?? 1)}`}>{rLabel}</Td>
+                {rLabel ? <><SexInputsFromData data={rData} /><InputCell /></> :
+                  <td colSpan={4} className="border border-gray-400"></td>}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION E: Non-Communicable Diseases ─────────────────────────────────────
+const lifestyleKeyOrder = [
+  'currentSmoker', 'smokerTobacco', 'smokerVaporized', 'smokerBoth',
+  'providedBti', 'bingeAlcohol', 'insufficientPa', 'unhealthyDiet', 'overweight', 'obese',
+];
+
+export const SectionE = ({ nonCommunicableDisease }: { nonCommunicableDisease?: NonCommunicableDiseaseData }) => {
+  const lifestyle = [
+    '1a. Current Smokers', 'a. Tobacco Products', 'b. Vaporized Nicotine Products', 'c. Both',
+    '1b. Provided Brief Tobacco Intervention', '1c. Binge Drinker', '1d. Insufficient physical activities',
+    '1e. Consumed unhealthy diet', '1f. Overweight', '1g. Obese',
+  ];
+  const lifestyle2 = [
+    '2a. Current Smokers', 'a. Tobacco Products', 'b. Vaporized Nicotine Products', 'c. Both',
+    '2b. Provided Brief Tobacco Intervention', '2c. Binge Drinker', '2d. Insufficient physical activities',
+    '2e. Consumed unhealthy diet', '2f. Overweight', '2g. Obese',
+  ];
+
+  const cvdRows: [string, string][] = [
+    ['1. Adults 20-59 years old who were identified as hypertensive using the PhilPEN protocol', '1. Adults 20-59 years old who were identified with Type II Diabetes using the PhilPEN protocol'],
+    ['2. Hypertensives 20-59 years old provided with antihypertensive medications', '2. Type II Diabetics 20-59 years old provided with antidiabetic medications'],
+    ['2a. Provided by facility (100%)', '2a. Provided by facility (100%)'],
+    ['2b. Out of pocket', '2b. Out of pocket'],
+    ['2c. Both', '2c. Both'],
+    ['3. Senior Citizens 60 years old and above who were identified as hypertensive using the PhilPEN protocol', '3. Senior Citizens 60 years old and above who were identified with Type II Diabetes using the PhilPEN protocol'],
+    ['4. Hypertensives 60 years old and above provided with antihypertensive medications', '4. Type II Diabetics 60 years old and above provided with antidiabetic medications'],
+    ['4a. Provided by facility (100%)', '4a. Provided by facility (100%)'],
+    ['4b. Out of pocket', '4b. Out of pocket'],
+    ['4c. Both', '4c. Both'],
+  ];
+
+  const eyeLeft = [
+    '1. Screened for eye disease/s', '1a. 0-9 years old screened for eye disease/s',
+    '1b. 10-19 years old screened for eye disease/s', '1c. 20-59 years old screened for eye disease/s',
+    '1d. 60 years old and above screened for eye disease/s',
+    '2. Screened and identified with eye disease/s',
+    '2a. 0-9 years old screened and identified with at least one eye ailment',
+    '2a1. Changes in vision', '2a2. Changes in appearance', '2a3. Eye and orbital injury', '2a4. Routine eye exams',
+    '2b. 10-19 years old screened and identified with at least one eye ailment',
+    '2b1. Changes in vision', '2b2. Changes in appearance', '2b3. Eye and orbital injury', '2b4. Routine eye exams',
+    '3. Identified with eye disease/s and referred to an eye health professional',
+    '3a. 0-9 years old identified with eye disease/s and referred to an eye health professional',
+    '3b. 10-19 years old identified with eye disease/s and referred to an eye health professional',
+    '3c. 20-59 years old identified with eye disease/s and referred to an eye health professional',
+    '3d. Senior Citizens identified with eye disease/s and referred to an eye health professional',
+  ];
+  const eyeRight = [
+    '2c. 20-59 years old screened and identified with at least one eye ailment',
+    '2c1. Changes in vision', '2c2. Changes in appearance', '2c3. Eye and orbital injury', '2c4. Routine eye exams',
+    '2d. 60 years old and above screened and identified with at least one eye ailment',
+    '2d1. Changes in vision', '2d2. Changes in appearance', '2d3. Eye and orbital injury', '2d4. Routine eye exams',
+    'E5. Immunization for Senior Citizens',
+    '1. Senior Citizens Seen who had not previously received PPV upon reaching 60 years old',
+    '2. Senior citizens aged 60 years old and above who received one (1) dose of Pneumococcal Polysaccharide Vaccine',
+    '3. Senior Citizens Seen',
+    '4. Senior citizens aged 60 years old and above who received one (1) dose of Influenza Vaccine',
+    'E6. Geriatric Screening',
+    'a. Senior Citizens screened using the geriatric screening tool',
+    'b. Senior Citizens with a positive geriatric screening result',
+    'b1. Memory', 'b2. Depression', 'b3. Polypharmacy', 'b4. Urinary Incontinence',
+  ];
+
+  const cervicalLeft = [
+    '1. Women aged 30-65 years old screened or assessed for cervical cancer',
+    '1a. VIA', '2a. PapSmear', '3a. HPV DNA', '4a. Assessed Only',
+    '2. Women aged 30-65 years old found suspicious for cervical cancer',
+    '3. Women aged 30-65 years old found suspicious for cervical cancer and linked to care',
+    '3a. Treated', '3b. Referred',
+    '4. Women aged 30-65 years old found positive for precancerous lesions',
+    '5. Women aged 30-65 years old found positive for precancerous lesions and linked to care',
+    '5a. Treated', '5b. Referred',
+  ];
+  // Index-aligned with cervicalLeft. '3a./3b. Treated/Referred' and '5a./5b.
+  // Treated/Referred' share identical label text, so they can only be told
+  // apart by position — not by matching the label string.
+  const cervicalKeyOrder: (keyof CervicalCancerTotals)[] = [
+    'screened', 'via', 'papSmear', 'hpvDna', 'assessedOnly',
+    'suspicious', 'suspiciousLinkedToCare', 'suspiciousLinkedTreated', 'suspiciousLinkedReferred',
+    'precancerous', 'precancerousLinkedToCare', 'precancerousLinkedTreated', 'precancerousLinkedReferred',
+  ];
+  const breastRight = [
+    '1. Number of 30-69 years old women seen',
+    '2. Number of high-risk and/or symptomatic women',
+    '3. High-risk and/or symptomatic women aged 30-69 years old provided with Breast Cancer Early Detection Services',
+    '3a. Clinical Breast Examination', '3b. Mammogram',
+    '4. High-risk and/or symptomatic women aged 30-69 years old found with remarkable or significant results',
+    '4a. Clinical Breast Examination', '4b. Mammogram',
+    '5. High-risk and/or symptomatic women aged 30-69 years old found with remarkable results and linked to care',
+    '5a. Clinical Breast Examination', '5b. Mammogram',
+    '6. Asymptomatic women aged 50-69 years old screened for breast cancer',
+    '6a. Clinical Breast Examination', '6b. Mammogram',
+  ];
+  // Index-aligned with breastRight, for the same reason as cervicalKeyOrder:
+  // 'Clinical Breast Examination' / 'Mammogram' repeat under items 3, 4 and 5.
+  const breastKeyOrder: (keyof BreastCancerTotals)[] = [
+    'seen', 'highRiskOrSymptomatic',
+    'provided', 'providedCbe', 'providedMammogram',
+    'remarkable', 'remarkableCbe', 'remarkableMammogram',
+    'linkedToCare', 'linkedToCareCbe', 'linkedToCareMammogram',
+    'asymptomaticScreened', 'asymptomaticCbe', 'asymptomaticMammogram',
+  ];
+
+  const maxEye = Math.max(eyeLeft.length, eyeRight.length);
+  const maxCancer = Math.max(cervicalLeft.length, breastRight.length);
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>SECTION E. NON-COMMUNICABLE DISEASES</SectionHeader>
+
+          <SubSectionHeader colSpan={10}>E1. Lifestyle Related</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">1. Adults 20-59 years old who were risk assessed using the PhilPEN protocol</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">2. Senior Citizens 60 years old and above who were risk assessed using the PhilPEN protocol</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {lifestyle.map((l, i) => (
+            <tr key={i}>
+              <Td className="pl-4">{l}</Td>
+              <SexInputsFromData data={nonCommunicableDisease?.lifestyle2059?.[lifestyleKeyOrder[i]]} /><InputCell />
+              <Td className="pl-4">{lifestyle2[i] ?? ''}</Td>
+              {lifestyle2[i] ? <><SexInputsFromData data={nonCommunicableDisease?.lifestyle60plus?.[lifestyleKeyOrder[i]]} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">E2. Cardiovascular Disease Prevention and Control</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">E3. Diabetes Mellitus Prevention and Control</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          <tr>
+            <Td className="pl-4 font-semibold">The total number of identified adult (20-59 years old) hypertensives (Sum of January to Previous Month)</Td>
+            <SexInputs /><InputCell />
+            <Td className="pl-4 font-semibold">The total number of identified adult (20-59 years old) with Type II Diabetes (Sum of January to Previous Month)</Td>
+            <SexInputs /><InputCell />
+          </tr>
+          <tr>
+            <Td className="pl-4">The total number of identified adult (20-59 years old) hypertensives in the current month</Td>
+            <SexInputsFromData data={nonCommunicableDisease?.cvd2059} /><InputCell />
+            <Td className="pl-4">The total number of identified adult (20-59 years old) with Type II Diabetes in the current month</Td>
+            <SexInputsFromData data={nonCommunicableDisease?.dm2059} /><InputCell />
+          </tr>
+          {cvdRows.map(([l, r], i) => (
+            <tr key={i}>
+              <Td className="pl-4">{l}</Td>
+              <SexInputsFromData data={i === 0 ? nonCommunicableDisease?.cvd60plus : undefined} /><InputCell />
+              <Td className="pl-4">{r}</Td>
+              <SexInputsFromData data={i === 0 ? nonCommunicableDisease?.dm60plus : undefined} /><InputCell />
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>E4. Blindness Prevention Program</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxEye }).map((_, i) => {
+            const l = eyeLeft[i] ?? '';
+            const r = eyeRight[i] ?? '';
+            const blindnessKey = (label: string): string | undefined => {
+              if (label.startsWith('1a.')) return 'screened0_9';
+              if (label.startsWith('1b.')) return 'screened10_19';
+              if (label.startsWith('1c.')) return 'screened20_59';
+              if (label.startsWith('1d.')) return 'screened60plus';
+              if (label === '2. Screened and identified with eye disease/s') return 'identified';
+              if (label.startsWith('2a1.')) return 'identifiedVision0_9';
+              if (label.startsWith('2a2.')) return 'identifiedAppearance0_9';
+              if (label.startsWith('2a3.')) return 'identifiedInjury0_9';
+              if (label.startsWith('2a4.')) return 'identifiedRoutine0_9';
+              if (label.startsWith('2a.')) return 'identified0_9';
+              if (label.startsWith('2b1.')) return 'identifiedVision10_19';
+              if (label.startsWith('2b2.')) return 'identifiedAppearance10_19';
+              if (label.startsWith('2b3.')) return 'identifiedInjury10_19';
+              if (label.startsWith('2b4.')) return 'identifiedRoutine10_19';
+              if (label.startsWith('2b.')) return 'identified10_19';
+              if (label.startsWith('2c1.')) return 'identifiedVision20_59';
+              if (label.startsWith('2c2.')) return 'identifiedAppearance20_59';
+              if (label.startsWith('2c3.')) return 'identifiedInjury20_59';
+              if (label.startsWith('2c4.')) return 'identifiedRoutine20_59';
+              if (label.startsWith('2c.')) return 'identified20_59';
+              if (label.startsWith('2d1.')) return 'identifiedVision60plus';
+              if (label.startsWith('2d2.')) return 'identifiedAppearance60plus';
+              if (label.startsWith('2d3.')) return 'identifiedInjury60plus';
+              if (label.startsWith('2d4.')) return 'identifiedRoutine60plus';
+              if (label.startsWith('2d.')) return 'identified60plus';
+              if (label === '3. Identified with eye disease/s and referred to an eye health professional') return 'referred';
+              if (label.startsWith('3a.')) return 'referred0_9';
+              if (label.startsWith('3b.')) return 'referred10_19';
+              if (label.startsWith('3c.')) return 'referred20_59';
+              if (label.startsWith('3d.')) return 'referred60plus';
+              return undefined;
+            };
+            // E5. Senior Immunization (geriatric_screening_records — no location scoping)
+            const immunizationKey = (label: string): string | undefined => {
+              if (label === '1. Senior Citizens Seen who had not previously received PPV upon reaching 60 years old') return 'ppvNotPreviouslyReceived';
+              if (label === '2. Senior citizens aged 60 years old and above who received one (1) dose of Pneumococcal Polysaccharide Vaccine') return 'ppvGiven';
+              if (label === '3. Senior Citizens Seen') return 'seniorsSeen';
+              if (label === '4. Senior citizens aged 60 years old and above who received one (1) dose of Influenza Vaccine') return 'influenzaGiven';
+              return undefined;
+            };
+            // E6. Geriatric Screening (geriatric_screening_records — no location scoping)
+            const geriatricKey = (label: string): string | undefined => {
+              if (label === 'a. Senior Citizens screened using the geriatric screening tool') return 'screened';
+              if (label === 'b. Senior Citizens with a positive geriatric screening result') return 'positive';
+              if (label === 'b1. Memory') return 'memory';
+              if (label === 'b2. Depression') return 'depression';
+              if (label === 'b3. Polypharmacy') return 'polypharmacy';
+              if (label === 'b4. Urinary Incontinence') return 'urinaryIncontinence';
+              return undefined;
+            };
+            const resolveData = (label: string) => {
+              const bKey = blindnessKey(label);
+              if (bKey) return nonCommunicableDisease?.blindness?.[bKey];
+              const iKey = immunizationKey(label);
+              if (iKey) return nonCommunicableDisease?.seniorImmunization?.[iKey];
+              const gKey = geriatricKey(label);
+              if (gKey) return nonCommunicableDisease?.geriatricScreening?.[gKey];
+              return undefined;
+            };
+            const lData = resolveData(l);
+            const rData = resolveData(r);
+            return (
+              <tr key={i} className={(l.startsWith('E5') || l.startsWith('E6') || r.startsWith('E5') || r.startsWith('E6')) ? 'bg-blue-50 font-bold' : ''}>
+                <Td className="pl-4 w-5/12">{l}</Td>
+                {l ? <><SexInputsFromData data={lData} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+                <Td className="pl-4 w-5/12">{r}</Td>
+                {r ? <><SexInputsFromData data={rData} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              </tr>
+            );
+          })}
+
+          <SubSectionHeader colSpan={10}>E7. Mental Health</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left" colSpan={5}>Indicator</Th>
+            <th colSpan={5} className="border border-gray-400 p-0 bg-gray-200">
+              <div className="grid grid-cols-4 border-b border-gray-400">
+                {['0-9 y/o', '10-19 y/o', '20-59 y/o', '60+ y/o'].map((age) => (
+                  <div key={age} className="border-r border-gray-400 last:border-r-0 text-center text-xs font-semibold px-1 py-1">{age}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-8">
+                {Array.from({ length: 4 }).flatMap((_, g) => ['M', 'F'].map((sx) => (
+                  <div key={`${g}-${sx}`} className="border-r border-gray-300 text-center text-xs font-semibold px-1 py-0.5">{sx}</div>
+                )))}
+              </div>
+            </th>
+          </tr>
+          <tr>
+            <Td className="pl-4" colSpan={5}>
+              1. Individuals with mental health concern screened using the Mental Health Gap Action Programme (mhGAP)
+              <br />
+              <span className="text-gray-500 italic">(Age Groups: 0-9 Male/Female | 10-19 Male/Female | 20-59 Male/Female | 60+ Male/Female)</span>
+            </Td>
+            <td colSpan={5} className="border border-gray-400">
+              <div className="grid grid-cols-8 gap-0 h-full">
+                {(['screened0_9', 'screened10_19', 'screened20_59', 'screened60plus'] as const).flatMap((key) => [
+                  nonCommunicableDisease?.mentalHealth?.[key]?.male,
+                  nonCommunicableDisease?.mentalHealth?.[key]?.female,
+                ]).map((v, i) => (
+                  <div key={i} className="border-r border-gray-300 text-center text-xs p-1 w-full">{v ?? ''}</div>
+                ))}
+              </div>
+            </td>
+          </tr>
+
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">E8. Cervical Cancer Prevention and Control Services</Th>
+            <Th colSpan={4}>Total / Remarks</Th>
+            <Th className="text-left w-5/12">E9. Breast Cancer Prevention and Control Services</Th>
+            <Th colSpan={4}>Total / Remarks</Th>
+          </tr>
+          {(() => {
+            return Array.from({ length: maxCancer }).map((_, i) => {
+              const l = cervicalLeft[i] ?? '';
+              const r = breastRight[i] ?? '';
+              const cKey = cervicalKeyOrder[i];
+              const bKey = breastKeyOrder[i];
+              const cValue = l && cKey ? nonCommunicableDisease?.cervical?.[cKey] : undefined;
+              const bValue = r && bKey ? nonCommunicableDisease?.breast?.[bKey] : undefined;
+              return (
+                <tr key={i}>
+                  <Td className="pl-4 w-5/12">{l}</Td>
+                  {l ? <><InputCell value={cValue} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  <td colSpan={2} className="border border-gray-400"></td>
+                  <Td className="pl-4 w-5/12">{r}</Td>
+                  {r ? <><InputCell value={bValue} /><InputCell /></> : <td colSpan={2} className="border border-gray-400"></td>}
+                  <td colSpan={2} className="border border-gray-400"></td>
+                </tr>
+              );
+            });
+          })()}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION F: Environmental Health ─────────────────────────────────────────
+export const SectionF = ({ environmentalHealth }: { environmentalHealth?: EnvironmentalHealthData }) => {
+  const waterValues = [
+    environmentalHealth ? environmentalHealth.water.levelI + environmentalHealth.water.levelII + environmentalHealth.water.levelIII : undefined,
+    environmentalHealth?.water.levelI,
+    environmentalHealth?.water.levelII,
+    environmentalHealth?.water.levelIII,
+    environmentalHealth?.water.safelyManaged,
+  ];
+  const sanitationValues = [
+    environmentalHealth?.sanitation.basicSanitationFacility,
+    environmentalHealth?.sanitation.pourFlushSeptic,
+    environmentalHealth?.sanitation.pourFlushSewer,
+    environmentalHealth?.sanitation.vip,
+    environmentalHealth?.sanitation.safelyManagedSanitation,
+  ];
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={6}>SECTION F. ENVIRONMENTAL HEALTH AND SANITATION</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">G1. Water — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">G1. Sanitation — Indicators</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {([
+            ['1. Households (HHs) with access to improved water supply - Total', '1. HH with basic sanitation facility - Total'],
+            ['1a. HH with Level I', '1a. HH with pour/flush toilet connected to a septic tank'],
+            ['1b. HH with Level II', '1b. HHs with pour/flush toilet connected to community sewer/sewerage system or any other approved treatment system'],
+            ['1c. HH with Level III', '1c. HH with Ventilated Improved Pit (VIP) Latrine'],
+            ['2. HH using safely managed drinking water service', '2. HH using safely managed sanitation service'],
+          ] as [string, string][]).map(([l, r], i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{l}</Td><InputCell value={waterValues[i]} /><InputCell />
+              <Td className="pl-4 w-5/12">{r}</Td><InputCell value={sanitationValues[i]} /><InputCell />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION G: Infectious Diseases ──────────────────────────────────────────
+const filariasisKeyMap: Record<string, string> = {
+  '1a. Nocturnal Blood Examination (NBE)': 'examinedNbe',
+  '1b. Rapid Diagnostic Test (RDT)': 'examinedRdt',
+  '2a. Nocturnal Blood Examination (NBE)': 'positiveNbe',
+  '2b. Rapid Diagnostic Test (RDT)': 'positiveRdt',
+  '3. Lymphedema': 'lymphedema',
+  '4. Elephentiasis': 'elephantiasis',
+  '3. Hydrocele': 'hydrocele',
+  '4. Number of individuals who received Mass Drug Administration': 'receivedMda',
+};
+// Resolves a schistosomiasis row label (e.g. "8a. 5-14 years old") to its data
+// key by extracting the leading item token ("8a"), since sub-row label text
+// repeats across items (many rows just say "5-14 years old" etc).
+const schistoTokenKeyMap: Record<string, string> = {
+  '1': 'patientsSeen', '1a': 'patientsSeen1_4', '1b': 'patientsSeen5_14', '1c': 'patientsSeen15_19', '1d': 'patientsSeen20_59', '1e': 'patientsSeen60plus',
+  '2': 'suspectedCases', '2a': 'suspectedCases1_4', '2b': 'suspectedCases5_14', '2c': 'suspectedCases15_19', '2d': 'suspectedCases20_59', '2e': 'suspectedCases60plus',
+  '3': 'treatedByAge', '3a': 'treated5_14', '3b': 'treated15_19', '3c': 'treated20_59', '3d': 'treated60plus',
+  '4a': 'treatedFirst', '4b': 'treatedRetreatment',
+  '5': 'cured', '5a': 'cured5_14', '5b': 'cured15_19', '5c': 'cured20_59', '5d': 'cured60plus',
+  '6': 'complicated', '6a': 'complicated1_4', '6b': 'complicated5_14', '6c': 'complicated15_19', '6d': 'complicated20_59', '6e': 'complicated60plus',
+  '7': 'nonComplicated', '7a': 'nonComplicated1_4', '7b': 'nonComplicated5_14', '7c': 'nonComplicated15_19', '7d': 'nonComplicated20_59', '7e': 'nonComplicated60plus',
+  '8': 'complicatedTreated', '8a': 'complicatedTreated5_14', '8b': 'complicatedTreated15_19', '8c': 'complicatedTreated20_59', '8d': 'complicatedTreated60plus',
+  '9': 'nonComplicatedTreated', '9a': 'nonComplicatedTreated5_14', '9b': 'nonComplicatedTreated15_19', '9c': 'nonComplicatedTreated20_59', '9d': 'nonComplicatedTreated60plus',
+  '10a': 'confirmedTreatedFirst', '10b': 'confirmedTreatedRetreatment',
+  '11': 'complicatedCured', '11a': 'complicatedCured5_14', '11b': 'complicatedCured15_19', '11c': 'complicatedCured20_59', '11d': 'complicatedCured60plus',
+  '12': 'nonComplicatedCured', '12a': 'nonComplicatedCured5_14', '12b': 'nonComplicatedCured15_19', '12c': 'nonComplicatedCured20_59', '12d': 'nonComplicatedCured60plus',
+  '13': 'referredToHospital', '13a': 'referredToHospital1_4', '13b': 'referredToHospital5_14', '13c': 'referredToHospital15_19', '13d': 'referredToHospital20_59', '13e': 'referredToHospital60plus',
+  '14': 'mdaGiven', '14a': 'mdaGiven5_14', '14b': 'mdaGiven15_19', '14c': 'mdaGiven20_59', '14d': 'mdaGiven60plus',
+};
+const schistoKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-e]?)\./)?.[1];
+  return token ? schistoTokenKeyMap[token] : undefined;
+};
+// Token-based like the schistosomiasis map: sub-row labels repeat across items
+// ("Resident", "School-Based deworming services", "5-14 years old"), so rows are
+// resolved by their leading item token ("8a", "12b") rather than label text.
+const sthTokenKeyMap: Record<string, string> = {
+  '1': 'screened', '1a': 'screened1_4', '1b': 'screened5_14', '1c': 'screened15_19', '1d': 'screened20_59', '1e': 'screened60plus',
+  '2': 'suspected', '2a': 'suspectedResident', '2b': 'suspectedNonResident',
+  '3': 'suspected', '3a': 'suspected1_4', '3b': 'suspected5_14', '3c': 'suspected15_19', '3d': 'suspected20_59', '3e': 'suspected60plus',
+  '4': 'confirmed', '4a': 'confirmedResident', '4b': 'confirmedNonResident',
+  '5': 'confirmed', '5a': 'confirmed1_4', '5b': 'confirmed5_14', '5c': 'confirmed15_19', '5d': 'confirmed20_59', '5e': 'confirmed60plus',
+  '6': 'treated', '6a': 'treatedResident', '6b': 'treatedNonResident',
+  '7': 'treated', '7a': 'treated1_4', '7b': 'treated5_14', '7c': 'treated15_19', '7d': 'treated20_59', '7e': 'treated60plus',
+  '8': 'januaryMda1_4', '8a': 'januaryMda1_4School', '8b': 'januaryMda1_4Community',
+  '9': 'julyMda1_4', '9a': 'julyMda1_4School', '9b': 'julyMda1_4Community',
+  '10': 'januaryMda5_14', '10a': 'januaryMda5_14School', '10b': 'januaryMda5_14Community',
+  '11': 'julyMda5_14', '11a': 'julyMda5_14School', '11b': 'julyMda5_14Community',
+  '12': 'adolescentMda', '12a': 'adolescentJanuaryMda', '12b': 'adolescentJulyMda',
+};
+const sthKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-e]?)\./)?.[1];
+  return token ? sthTokenKeyMap[token] : undefined;
+};
+// Token-based like schisto/STH: sub-row labels ("0-14 years old" etc.) repeat
+// across items 1/2/3/4/5/6, so rows are resolved by leading item token.
+const leprosyTokenKeyMap: Record<string, string> = {
+  '1': 'registered', '1a': 'registered0_14', '1b': 'registered15_18', '1c': 'registered19plus',
+  '2': 'newlyDetected', '2a': 'newlyDetected0_14', '2b': 'newlyDetected15_18', '2c': 'newlyDetected19plus',
+  '3': 'confirmed', '3a': 'confirmed0_14', '3b': 'confirmed15_18', '3c': 'confirmed19plus',
+  '4': 'completedMdt', '4a': 'completedMdt0_14', '4b': 'completedMdt15_18', '4c': 'completedMdt19plus',
+  '5': 'treated', '5a': 'treated0_14', '5b': 'treated15_18', '5c': 'treated19plus',
+  '6': 'grade2Disability', '6a': 'grade2Disability0_14', '6b': 'grade2Disability15_18', '6c': 'grade2Disability19plus',
+};
+const leprosyKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-c]?)\./)?.[1];
+  return token ? leprosyTokenKeyMap[token] : undefined;
+};
+// F. HIV-AIDS/STI: token-based for the same reason ("10-14 years old" etc.
+// repeats across items 1-7).
+const hivTokenKeyMap: Record<string, string> = {
+  '1': 'syphilisScreened', '1a': 'syphilisScreened10_14', '1b': 'syphilisScreened15_19', '1c': 'syphilisScreened20_49',
+  '2': 'syphilisReactive', '2a': 'syphilisReactive10_14', '2b': 'syphilisReactive15_19', '2c': 'syphilisReactive20_49',
+  '3': 'syphilisTreated', '3a': 'syphilisTreated10_14', '3b': 'syphilisTreated15_19', '3c': 'syphilisTreated20_49',
+  '4': 'hivScreened', '4a': 'hivScreened10_14', '4b': 'hivScreened15_19', '4c': 'hivScreened20_49',
+  '5': 'hivReactive', '5a': 'hivReactive10_14', '5b': 'hivReactive15_19', '5c': 'hivReactive20_49',
+  '6': 'hepBScreened', '6a': 'hepBScreened10_14', '6b': 'hepBScreened15_19', '6c': 'hepBScreened20_49',
+  '7': 'hepBReactive', '7a': 'hepBReactive10_14', '7b': 'hepBReactive15_19', '7c': 'hepBReactive20_49',
+};
+const hivKeyFor = (label: string): string | undefined => {
+  const token = label.match(/^(\d+[a-c]?)\./)?.[1];
+  return token ? hivTokenKeyMap[token] : undefined;
+};
+const infectiousDataFor = (
+  dataset: Record<string, SexBrackets> | undefined,
+  map: Record<string, string>,
+  label: string,
+): SexBrackets | undefined => {
+  const key = map[label];
+  return key && dataset ? dataset[key] : undefined;
+};
+
+export const SectionG = ({ infectiousDisease }: { infectiousDisease?: InfectiousDiseaseData }) => {
+  const filiariasisLeft = [
+    '1. No. of individual examined for lymphatic filariasis',
+    '1a. Nocturnal Blood Examination (NBE)', '1b. Rapid Diagnostic Test (RDT)',
+    '1c. Total no. of individuals examined for lymphedema through NBE and RDT',
+    '2. No. of individual found positive for lymphatic filariasis',
+    '2a. Nocturnal Blood Examination (NBE)', '2b. Rapid Diagnostic Test (RDT)',
+    '2c. Total no. of individuals found positive for lymphedema through NBE and RDT',
+    '3. Lymphedema', '3a. 2-4 years old', '3b. 5-14 years old', '3c. 15 years old and above',
+    '3d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with lymphedema',
+    '4. Elephentiasis', '4a. 2-4 years old', '4b. 5-14 years old', '4c. 15 years old and above',
+    '4d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with Elephentiasis',
+  ];
+  const filiariasisRight = [
+    '3. Hydrocele', '3a. 2-4 years old', '3b. 5-14 years old', '3c. 15 years old and above',
+    '3d. Total no. of individuals aged 2 yrs old and above examined for the 1st time with Hydrocele',
+    '4. Number of individuals who received Mass Drug Administration',
+    '4a. 2-4 years old', '4b. 5-14 years old', '4c. 15 years old and above',
+    '4d. Total no. of individuals aged 2 yrs old and above who received MDA',
+  ];
+
+  const schLeft = [
+    '1. Patients Seen', '1a. 1-4 years old', '1b. 5-14 yrs old', '1c. 15-19 yrs old', '1d. 20-59 yrs old', '1e. 60 yrs old and above',
+    '2. Clinical/Suspected Schistosomiasis Cases Seen',
+    '2a. 1-4 years old', '2b. 5-14 yrs old', '2c. 15-19 yrs old', '2d. 20-59 yrs old', '2e. 60 yrs old and above',
+    '3. Clinical/Suspected Schistosomiasis Cases Treated by age group',
+    '3a. 5-14 years old', '3b. 15-19 years old', '3c. 20-59 years old', '3d. 60 years old and above',
+    '4. Clinical/Suspected Schistosomiasis Cases Treated by treatment type',
+    '4a. 1st treatment', '4b. Retreatment',
+    '5. Clinical/Suspected Schistosomiasis Cases Cured',
+    '5a. 5-14 years old', '5b. 15-19 years old', '5c. 20-59 years old', '5d. 60 years old and above',
+    '6. Confirmed COMPLICATED Schistosomiasis Cases by age group',
+    '6a. 1-4 years old', '6b. 5-14 years old', '6c. 15-19 years old', '6d. 20-59 years old', '6e. 60 years old and above',
+    '7. Confirmed NON-COMPLICATED Schistosomiasis Cases by age group',
+    '7a. 1-4 years old', '7b. 5-14 years old', '7c. 15-19 years old', '7d. 20-59 years old', '7e. 60 years old and above',
+  ];
+  const schRight = [
+    '8. Confirmed COMPLICATED Schistosomiasis Cases TREATED',
+    '8a. 5-14 years old', '8b. 15-19 years old', '8c. 20-59 years old', '8d. 60 years old and above',
+    '9. Confirmed NON-COMPLICATED Schistosomiasis Cases TREATED',
+    '9a. 5-14 years old', '9b. 15-19 years old', '9c. 20-59 years old', '9d. 60 years old and above',
+    '10. Confirmed Schistosomiasis Cases Treated by treatment',
+    '10a. 1st treatment', '10b. Retreatment',
+    '11. Confirmed COMPLICATED Schistosomiasis Cases CURED by age group',
+    '11a. 5-14 years old', '11b. 15-19 years old', '11c. 20-59 years old', '11d. 60 years old and above',
+    '12. Confirmed NON-COMPLICATED Schistosomiasis Cases CURED by age group',
+    '12a. 5-14 years old', '12b. 15-19 years old', '12c. 20-59 years old', '12d. 60 years old and above',
+    '13. Confirmed Schistosomiasis Cases Referred to Hospital Facility',
+    '13a. 1-4 years old', '13b. 5-14 yrs old', '13c. 15-19 yrs old', '13d. 20-59 yrs old', '13e. 60 yrs old and above',
+    '14. Individuals dewormed with one (1) dose of Praziquantel during MDA',
+    '14a. 5-14 yrs old', '14b. 15-19 yrs old', '14c. 20-59 yrs old', '14d. 60 yrs old and above',
+  ];
+
+  const sthLeft = [
+    '1. Screened for STH', '1a. 1-4 years old', '1b. 5-14 years old', '1c. 15-19 years old', '1d. 20-59 years old', '1e. 60 years old and above',
+    '2. Suspected Cases of STH by place of diagnosis', '2a. Resident', '2b. Non-Resident',
+    '3. Suspected Cases of STH by age group',
+    '3a. 1-4 years old', '3b. 5-14 years old', '3c. 15-19 years old', '3d. 20-59 years old', '3e. 60 years old and above',
+    '4. Confirmed STH Cases by place of diagnosis', '4a. Resident', '4b. Non-Resident',
+    '5. Confirmed STH Cases by age group',
+    '5a. 1-4 years old', '5b. 5-14 years old', '5c. 15-19 years old', '5d. 20-59 years old', '5e. 60 years old and above',
+  ];
+  const sthRight = [
+    '6. Confirmed STH Cases Treated by place of diagnosis', '6a. Resident', '6b. Non-Resident',
+    '7. Confirmed STH Cases Treated by age group',
+    '7a. 1-4 years old', '7b. 5-14 years old', '7c. 15-19 years old', '7d. 20-59 years old', '7e. 60 years old and above',
+    '8. 1-4 years old who were dewormed during January MDA',
+    '8a. School-Based deworming services', '8b. Community Based services',
+    '9. 1-4 years old who were dewormed during July MDA',
+    '9a. School-Based deworming services', '9b. Community Based services',
+    '10. 5-14 years old who were dewormed during January MDA',
+    '10a. School-Based deworming services', '10b. Community Based services',
+    '11. 5-14 years old who were dewormed during July MDA',
+    '11a. School-Based deworming services', '11b. Community Based services',
+    '12. 15-19 yrs old who were dewormed during January/July MDA',
+    '12a. No. of adolescents (15-19 yrs old) who were dewormed during January MDA',
+    '12b. No. of adolescents (15-19 yrs old) who were dewormed during July MDA',
+  ];
+
+  const lepLeft = [
+    '1. No. of registered Leprosy cases', '1a. 0-14 years old', '1b. 15-18 years old', '1c. 19 years old and above',
+    '2. No. of newly detected case', '2a. 0-14 years old', '2b. 15-18 years old', '2c. 19 years old and above',
+    '3. Confirmed Leprosy Cases', '3a. 0-14 years old', '3b. 15-18 years old', '3c. 19 years old and above',
+  ];
+  const lepRight = [
+    '4. Completed fixed duration Multi-Drug Therapy (MDT)', '4a. 0-14 years old', '4b. 15-18 years old', '4c. 19 years old and above',
+    '5. No. of confirmed leprosy cases treated', '5a. 0-14 years old', '5b. 15-18 years old', '5c. 19 years old and above',
+    '6. Newly Detected Cases with Grade 2 Disabilities', '6a. 0-14 years old', '6b. 15-18 years old', '6c. 19 years old and above',
+  ];
+
+  const hivRows: [string, string][] = [
+    ['1. Pregnant women screened for syphilis - Total', '5. Pregnant women screened reactive for HIV - Total'],
+    ['1a. 10-14 years old', '5a. 10-14 years old'], ['1b. 15-19 years old', '5b. 15-19 years old'], ['1c. 20-49 years old', '5c. 20-49 years old'],
+    ['2. Pregnant women screened reactive for syphilis - Total', '6. Pregnant women screened for Hepatitis B - Total'],
+    ['2a. 10-14 years old', '6a. 10-14 years old'], ['2b. 15-19 years old', '6b. 15-19 years old'], ['2c. 20-49 years old', '6c. 20-49 years old'],
+    ['3. Pregnant women treated for syphilis - Total', '7. Pregnant women screened reactive for Hepatitis B - Total'],
+    ['3a. 10-14 years old', '7a. 10-14 years old'], ['3b. 15-19 years old', '7b. 15-19 years old'], ['3c. 20-49 years old', '7c. 20-49 years old'],
+    ['4. Pregnant women screened for HIV - Total', ''],
+    ['4a. 10-14 years old', ''], ['4b. 15-19 years old', ''], ['4c. 20-49 years old', ''],
+  ];
+
+  const maxFil = Math.max(filiariasisLeft.length, filiariasisRight.length);
+  const maxSch = Math.max(schLeft.length, schRight.length);
+  const maxSth = Math.max(sthLeft.length, sthRight.length);
+  const maxLep = Math.max(lepLeft.length, lepRight.length);
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={10}>SECTION G. INFECTIOUS DISEASE PREVENTION AND CONTROL SERVICES</SectionHeader>
+
+          <SubSectionHeader colSpan={10}>A. Filariasis</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxFil }).map((_, i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{filiariasisLeft[i] ?? ''}</Td>
+              {filiariasisLeft[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.filariasis, filariasisKeyMap, filiariasisLeft[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              <Td className="pl-4 w-5/12">{filiariasisRight[i] ?? ''}</Td>
+              {filiariasisRight[i] ? <><SexInputsFromData data={infectiousDataFor(infectiousDisease?.filariasis, filariasisKeyMap, filiariasisRight[i])} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>B. Rabies</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">1. Animal Bites — No. of Animal Bites</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">2. Rabies Death — No. of Rabies Death</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          <tr>
+            <Td className="pl-4"></Td><SexInputsFromData data={infectiousDisease?.rabies?.animalBites} /><InputCell />
+            <Td className="pl-4"></Td><SexInputsFromData data={infectiousDisease?.rabies?.rabiesDeaths} /><InputCell />
+          </tr>
+
+          <SubSectionHeader colSpan={10}>C. Schistosomiasis</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxSch }).map((_, i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{schLeft[i] ?? ''}</Td>
+              {schLeft[i] ? <><SexInputsFromData data={schLeft[i] ? infectiousDisease?.schistosomiasis?.[schistoKeyFor(schLeft[i]) ?? ''] : undefined} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              <Td className="pl-4 w-5/12">{schRight[i] ?? ''}</Td>
+              {schRight[i] ? <><SexInputsFromData data={schRight[i] ? infectiousDisease?.schistosomiasis?.[schistoKeyFor(schRight[i]) ?? ''] : undefined} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>D. Soil-Transmitted Helminthiasis</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxSth }).map((_, i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{sthLeft[i] ?? ''}</Td>
+              {sthLeft[i] ? <><SexInputsFromData data={infectiousDisease?.sth?.[sthKeyFor(sthLeft[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              <Td className="pl-4 w-5/12">{sthRight[i] ?? ''}</Td>
+              {sthRight[i] ? <><SexInputsFromData data={infectiousDisease?.sth?.[sthKeyFor(sthRight[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>E. Leprosy</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {Array.from({ length: maxLep }).map((_, i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{lepLeft[i] ?? ''}</Td>
+              {lepLeft[i] ? <><SexInputsFromData data={infectiousDisease?.leprosy?.[leprosyKeyFor(lepLeft[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              <Td className="pl-4 w-5/12">{lepRight[i] ?? ''}</Td>
+              {lepRight[i] ? <><SexInputsFromData data={infectiousDisease?.leprosy?.[leprosyKeyFor(lepRight[i]) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+
+          <SubSectionHeader colSpan={10}>F. HIV-AIDS/STI</SubSectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Indicators</Th><Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+          {hivRows.map(([l, r], i) => (
+            <tr key={i}>
+              <Td className="pl-4 w-5/12">{l}</Td>
+              {l ? <><SexInputsFromData data={infectiousDisease?.hivAidsSti?.[hivKeyFor(l) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+              <Td className="pl-4 w-5/12">{r}</Td>
+              {r ? <><SexInputsFromData data={infectiousDisease?.hivAidsSti?.[hivKeyFor(r) ?? '']} /><InputCell /></> : <td colSpan={4} className="border border-gray-400"></td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ─── SECTION H: Vital Statistics ─────────────────────────────────────────────
+export const SectionH = ({ vitalStatistics }: { vitalStatistics?: VitalStatisticsData }) => {
+  const m = vitalStatistics?.mortality;
+  const n = vitalStatistics?.natality;
+
+  return (
+    <div className="mb-6">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          <SectionHeader colSpan={11}>SECTION H. VITAL STATISTICS</SectionHeader>
+          <tr className="bg-gray-100">
+            <Th className="text-left w-5/12">Part I. Mortality — Indicators</Th>
+            <Th>10-14</Th><Th>15-19</Th><Th>20-49</Th><Th>TOTAL</Th><Th>Remarks</Th>
+            <Th className="text-left w-5/12">Part II. Natality — Indicators</Th>
+            <Th>Male</Th><Th>Female</Th><Th>Total</Th><Th>Remarks</Th>
+          </tr>
+
+          {/* Row 1: Maternal Mortality Total | Live births Total */}
+          <tr>
+            <Td className="pl-4 font-semibold w-5/12">1. Maternal Mortality - Total</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.total} />
+            <InputCell />
+            <Td className="pl-4 w-5/12">1. Live births (Total)</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.liveBirths} />
+            <InputCell />
+          </tr>
+
+          {/* Row 2: Direct | Adolescent Birth header */}
+          <tr>
+            <Td className="pl-6">a. Direct</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directTotal} />
+            <InputCell />
+            <Td className="pl-4">2. Adolescent Birth</Td>
+            <InputCell /><InputCell /><InputCell /><InputCell />
+          </tr>
+
+          {/* Row 3: Direct Resident | <10 years old */}
+          <tr>
+            <Td className="pl-8">a1. Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directResident} />
+            <InputCell />
+            <Td className="pl-6">2a. &lt;10 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent.lt10} />
+            <InputCell />
+          </tr>
+
+          {/* Row 4: Direct Non-Resident | 10-14 years old */}
+          <tr>
+            <Td className="pl-8">a2. Non-Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.directNonResident} />
+            <InputCell />
+            <Td className="pl-6">2b. 10-14 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent['10-14']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 5: Indirect | 15-19 years old */}
+          <tr>
+            <Td className="pl-6">b. Indirect</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectTotal} />
+            <InputCell />
+            <Td className="pl-6">2c. 15-19 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.adolescent['15-19']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 6: Indirect Resident | Repeat Adolescent Birth header */}
+          <tr>
+            <Td className="pl-8">b1. Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectResident} />
+            <InputCell />
+            <Td className="pl-4">3. Repeat Adolescent Birth</Td>
+            <InputCell /><InputCell /><InputCell /><InputCell />
+          </tr>
+
+          {/* Row 7: Indirect Non-Resident | 3a. 10-14 */}
+          <tr>
+            <Td className="pl-8">b2. Non-Resident</Td>
+            <InputCell /><InputCell /><InputCell />
+            <InputCell value={m?.maternal.indirectNonResident} />
+            <InputCell />
+            <Td className="pl-6">3a. 10-14 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.repeatAdolescent['10-14']} />
+            <InputCell />
+          </tr>
+
+          {/* Row 8: empty mortality left | 3b. 15-19 */}
+          <tr>
+            <td colSpan={6} className="border border-gray-400" />
+            <Td className="pl-6 w-5/12">3b. 15-19 years old</Td>
+            <InputCell /><InputCell />
+            <InputCell value={n?.repeatAdolescent['15-19']} />
+            <InputCell />
+          </tr>
+
+          {/* Infant Mortality — separate sub-header + data row */}
+          <tr className="bg-gray-100">
+            <Th className="text-left" colSpan={6}>2. Infant Mortality (Male | Female | Total)</Th>
+            <Th colSpan={5}>&nbsp;</Th>
+          </tr>
+          <tr>
+            <Td className="pl-4">2. Infant Mortality</Td>
+            <InputCell value={m?.infant.male} />
+            <InputCell value={m?.infant.female} />
+            <InputCell value={m?.infant.total} />
+            <InputCell />
+            <td className="border border-gray-400" />
+            <td colSpan={5} className="border border-gray-400" />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
