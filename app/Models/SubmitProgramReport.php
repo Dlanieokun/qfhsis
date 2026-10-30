@@ -20,14 +20,23 @@ class SubmitProgramReport extends Model
         'municipality_code',
         'barangay_codes',
         'status',
+        'remarks',
+        'reviewed_by',
+        'reviewed_at',
     ];
 
     protected $casts = [
         'barangay_codes' => 'array',
+        'reviewed_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 }

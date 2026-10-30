@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import axios from 'axios';
 import { usePage } from '@inertiajs/react';
 import { type SharedData } from '@/types';
 import {
@@ -54,6 +55,8 @@ interface A1AllProgramsProps {
       barangay_codes: string[];
     },
   ) => void;
+  // Lets the parent run "save the facility & workforce edits" right before it submits the report.
+  registerSaveHandler?: (handler: (() => Promise<void>) | null) => void;
 }
 
 // Live report data, one entry per M1 section (same endpoints as the M1 page).
@@ -83,68 +86,85 @@ const endpoints: [keyof ReportData, string, string][] = [
 // annual period is recorded against December of the selected year.
 const ANNUAL_PERIOD_MONTH = '12';
 
-// Sex column helpers (used by the Facility & Workforce table)
-const SexHeaders = () => (
-  <>
-    <Th>Male</Th>
-    <Th>Female</Th>
-    <Th>Total</Th>
-  </>
-);
-const SexInputs = ({ totalVal = '' }: { totalVal?: string }) => (
-  <>
-    <InputCell />
-    <InputCell />
-    <InputCell value={totalVal} />
-  </>
+// ─── Health Facility & Workforce: editable rows ──────────────────────────────
+interface FacilityRowValue { male: string; female: string; total: string; remarks: string; }
+type FacilityValues = Record<string, Partial<FacilityRowValue>>;
+type FacilityField = keyof FacilityRowValue;
+
+const FACILITY_ROWS: { key: string; label: string; sub: boolean }[] = [
+  { key: 'barangays',        label: '1. No. of Barangays - Total',               sub: false },
+  { key: 'households',       label: '2. No. of Households - (Projected)',        sub: false },
+  { key: 'health_centers',   label: '3. No. of Health Centers - Total',          sub: false },
+  { key: 'main_hc',          label: 'a. Main Health Centers - Total',            sub: true  },
+  { key: 'city_hc',          label: 'b. City Health Centers - Total',            sub: true  },
+  { key: 'rhu',              label: 'c. Rural Health Units - Total',             sub: true  },
+  { key: 'super_hc',         label: 'd. Super Health Centers - Total',           sub: true  },
+  { key: 'bhs',              label: '4. No. of Barangay Health Stations - Total', sub: false },
+  { key: 'health_workers',   label: '5. No. of Health Workers - Total',          sub: false },
+  { key: 'physicians',       label: 'a. Physicians/Doctors - Total',             sub: true  },
+  { key: 'dentists',         label: 'b. Dentists - Total',                       sub: true  },
+  { key: 'nurses',           label: 'c. Nurses - Total',                         sub: true  },
+  { key: 'midwives',         label: 'd. Midwives - Total',                       sub: true  },
+  { key: 'med_techs',        label: 'e. Medical Technologists - Total',          sub: true  },
+  { key: 'nutritionists',    label: 'f. Nutritionists/Dietitians - Total',       sub: true  },
+  { key: 'sanitary_engrs',   label: 'g. Sanitary Engineers - Total',             sub: true  },
+  { key: 'sanitary_inspr',   label: 'h. Sanitary Inspectors - Total',            sub: true  },
+  { key: 'bhws',             label: 'i. Active BHWs - Total',                    sub: true  },
+];
+
+// Editable table cell
+const EditCell = ({
+  value, onChange, readOnly, wide,
+}: { value: string; onChange: (v: string) => void; readOnly: boolean; wide?: boolean }) => (
+  <td className="border border-gray-400 p-0 text-xs">
+    <input
+      type="text"
+      value={value}
+      readOnly={readOnly}
+      onChange={(e) => onChange(e.target.value)}
+      className={`w-full bg-transparent px-1 py-1 outline-none focus:bg-blue-50 ${wide ? 'text-left' : 'text-center'} ${readOnly ? 'cursor-default' : ''}`}
+    />
+  </td>
 );
 
 // ─── SECTION: Health Facility & Workforce Data ───────────────────────────────
-const SectionFacility = ({ data }: { data?: any }) => {
-  const locationBreakdown = data?.['Facility & Workforce']?.locationBreakdown ?? [];
-
-  // Derive counts from locationBreakdown
-  const totalBarangays  = locationBreakdown.length;
-  const totalHouseholds = locationBreakdown.reduce(
-    (sum: number, row: any) => sum + (row.total_households ?? 0), 0
-  );
-
-  const facilityRows: [string, boolean, string][] = [
-    ['1. No. of Barangays - Total',         false, String(totalBarangays  || '')],
-    ['2. No. of Households - (Projected)',   false, String(totalHouseholds || '')],
-    ['3. No. of Health Centers - Total',     false, ''],
-    ['a. Main Health Centers - Total',       true,  ''],
-    ['b. City Health Centers - Total',       true,  ''],
-    ['c. Rural Health Units - Total',        true,  ''],
-    ['d. Super Health Centers - Total',      true,  ''],
-    ['4. No. of Barangay Health Stations - Total', false, ''],
-    ['5. No. of Health Workers - Total',     false, ''],
-    ['a. Physicians/Doctors - Total',        true,  ''],
-    ['b. Dentists - Total',                  true,  ''],
-    ['c. Nurses - Total',                    true,  ''],
-    ['d. Midwives - Total',                  true,  ''],
-    ['e. Medical Technologists - Total',     true,  ''],
-    ['f. Nutritionists/Dietitians - Total',  true,  ''],
-    ['g. Sanitary Engineers - Total',        true,  ''],
-    ['h. Sanitary Inspectors - Total',       true,  ''],
-    ['i. Active BHWs - Total',               true,  ''],
-  ];
+const SectionFacility = ({
+  values, defaults, onChange, readOnly, status,
+}: {
+  values: FacilityValues;
+  defaults: Record<string, string>;
+  onChange: (key: string, field: FacilityField, value: string) => void;
+  readOnly: boolean;
+  status?: string | null;
+}) => {
+  const cell = (key: string, field: FacilityField): string =>
+    values[key]?.[field] ?? (field === 'total' ? defaults[key] ?? '' : '');
 
   return (
     <div className="mb-6">
+      {!readOnly && (
+        <p className="mb-1 text-xs text-gray-500">
+          Click any cell to edit. Your changes are saved to the database when you submit the report.
+          {status ? <span className="ml-2 text-emerald-600">{status}</span> : null}
+        </p>
+      )}
       <table className="w-full border-collapse text-xs">
         <tbody>
           <SectionHeader colSpan={5}>HEALTH FACILITY AND WORKFORCE DATA</SectionHeader>
           <tr className="bg-gray-100">
             <Th className="text-left">Indicators</Th>
-            <SexHeaders />
+            <Th>Male</Th>
+            <Th>Female</Th>
+            <Th>Total</Th>
             <Th>Remarks</Th>
           </tr>
-          {facilityRows.map(([label, sub, total], i) => (
-            <tr key={i}>
+          {FACILITY_ROWS.map(({ key, label, sub }) => (
+            <tr key={key}>
               <Td className={sub ? 'pl-8' : 'pl-4'}>{label}</Td>
-              <SexInputs totalVal={total} />
-              <InputCell />
+              <EditCell value={cell(key, 'male')} readOnly={readOnly} onChange={(v) => onChange(key, 'male', v)} />
+              <EditCell value={cell(key, 'female')} readOnly={readOnly} onChange={(v) => onChange(key, 'female', v)} />
+              <EditCell value={cell(key, 'total')} readOnly={readOnly} onChange={(v) => onChange(key, 'total', v)} />
+              <EditCell value={cell(key, 'remarks')} readOnly={readOnly} wide onChange={(v) => onChange(key, 'remarks', v)} />
             </tr>
           ))}
         </tbody>
@@ -160,6 +180,7 @@ export default function A1AllPrograms({
   municipalities = [],
   barangays = [],
   onApplyFilter,
+  registerSaveHandler,
 }: A1AllProgramsProps) {
   const { auth } = usePage<SharedData>().props;
   const user = auth?.user as any;
@@ -186,6 +207,10 @@ export default function A1AllPrograms({
 
   const [reportData, setReportData] = useState<ReportData>({});
   const [facilityData, setFacilityData] = useState<any>(undefined);
+  // User edits to the Health Facility & Workforce table (loaded from / saved to the database)
+  const [facilityValues, setFacilityValues] = useState<FacilityValues>({});
+  const [facilityStatus, setFacilityStatus] = useState<string | null>(null);
+  const canEditFacility = ['BHS', 'Public Health Nurse', 'PHO', 'Administrator'].includes(user?.role ?? '');
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -265,10 +290,72 @@ export default function A1AllPrograms({
       })(),
     ]);
 
+    // Previously saved facility & workforce edits for this year + address
+    try {
+      const saved = await axios.get('/qfhsis/public/api/reports/facility-workforce', { params: facilityScope() });
+      setFacilityValues(saved.data?.data?.rows ?? {});
+      setFacilityStatus(null);
+    } catch (err) {
+      console.warn('Saved facility & workforce data failed to load', err);
+      setFacilityValues({});
+    }
+
     setErrors(failures);
     setHasLoaded(true);
     setIsLoading(false);
   };
+
+  // Auto-derived suggestions shown until the user types their own value
+  const facilityDefaults = useMemo(() => {
+    const breakdown = facilityData?.['Facility & Workforce']?.locationBreakdown ?? [];
+    const households = breakdown.reduce((sum: number, row: any) => sum + (row.total_households ?? 0), 0);
+    const barangayCount = effectiveBarangays.length || filteredBarangays.length;
+    return {
+      barangays: barangayCount ? String(barangayCount) : '',
+      households: households ? String(households) : '',
+    } as Record<string, string>;
+  }, [facilityData, effectiveBarangays, filteredBarangays]);
+
+  const handleFacilityChange = (key: string, field: FacilityField, value: string) => {
+    setFacilityStatus(null);
+    setFacilityValues((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+  };
+
+  const facilityScope = () => ({
+    year: selectedYear || String(new Date().getFullYear()),
+    region_code: selectedRegion,
+    province_code: selectedProvince,
+    municipality_code: selectedMunicipality,
+    barangay_codes: effectiveBarangays,
+  });
+
+  // Save the edited table. The parent calls this just before submitting the report,
+  // and aborts the submission if it throws.
+  const saveFacility = async () => {
+    const rows: Record<string, FacilityRowValue> = {};
+    FACILITY_ROWS.forEach(({ key }) => {
+      const v = facilityValues[key] ?? {};
+      rows[key] = {
+        male: v.male ?? '',
+        female: v.female ?? '',
+        total: v.total ?? facilityDefaults[key] ?? '',
+        remarks: v.remarks ?? '',
+      };
+    });
+    try {
+      await axios.put('/qfhsis/public/api/reports/facility-workforce', { ...facilityScope(), rows });
+      setFacilityStatus('Saved');
+    } catch (err: any) {
+      const message = err?.response?.data?.message ?? 'Failed to save Health Facility and Workforce data.';
+      throw new Error(message);
+    }
+  };
+
+  useEffect(() => {
+    if (!registerSaveHandler) return;
+    registerSaveHandler(canEditFacility && hasLoaded ? saveFacility : null);
+    return () => registerSaveHandler(null);
+  });
 
   const sections = [
     { id: 'all', label: 'All' },
@@ -480,7 +567,15 @@ export default function A1AllPrograms({
         {show('f') && <SectionF environmentalHealth={reportData.environmentalHealth} />}
         {show('g') && <SectionG infectiousDisease={reportData.infectiousDisease} />}
         {show('h') && <SectionH vitalStatistics={reportData.vitalStatistics} />}
-        {show('facility') && <SectionFacility data={facilityData} />}
+        {show('facility') && (
+          <SectionFacility
+            values={facilityValues}
+            defaults={facilityDefaults}
+            onChange={handleFacilityChange}
+            readOnly={!canEditFacility}
+            status={facilityStatus}
+          />
+        )}
       </div>
     </div>
   );

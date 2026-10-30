@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Head } from '@inertiajs/react';
 import { usePage } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,6 +12,7 @@ import Q1AllPrograms from './Q1AllPrograms';
 import M28PAA from './M28PAA';
 import A1AllPrograms from './A1AllPrograms';
 import MorbidityPage from './MorbidityPage';
+import ReviewSubmissionsPanel from './ReviewSubmissionsPanel';
 
 // Parse JSON-encoded or plain arrays stored on the user model (e.g. barangay_codes)
 const parseArray = (val: unknown): string[] => {
@@ -34,6 +35,23 @@ export interface FilterLocation {
     province_code: string;
     municipality_code: string;
     barangay_codes: string[];
+}
+
+// Result of the user's own submission for the selected form/period/address
+interface ExistingSubmission {
+    status: 'submitted' | 'confirmed' | 'rejected';
+    remarks: string | null;
+    reviewer: string | null;
+}
+
+// Whether the consolidated report can be submitted yet (Public Health Nurse / PHO)
+interface Readiness {
+    applies: boolean;
+    ready: boolean;
+    required: number;
+    confirmed: number;
+    pending: string[];
+    message: string;
 }
 
 interface PhoPageProps {
@@ -65,7 +83,7 @@ const SUBMIT_MONTHS = [
     { value: '12', label: 'December' },
 ];
 
-// Human-readable address shown inside the Submit / Decline modals
+// Human-readable address shown inside the Submit modal
 interface LocationLabels {
     region: string;
     province: string;
@@ -217,113 +235,6 @@ function SubmitReportModal({
     );
 }
 
-// ─── Decline Report Modal ─────────────────────────────────────────────────────
-// Shown only to reviewer roles (Public Health Nurse, Administrator, DOH) so they
-// can mark a reporting period as declined instead of / before it being submitted.
-interface DeclineReportModalProps {
-    isOpen: boolean;
-    month: string;
-    year: string;
-    isDeclining: boolean;
-    error: string | null;
-    location: LocationLabels;
-    onMonthChange: (value: string) => void;
-    onYearChange: (value: string) => void;
-    onCancel: () => void;
-    onConfirm: () => void;
-}
-
-function DeclineReportModal({
-    isOpen,
-    month,
-    year,
-    isDeclining,
-    error,
-    location,
-    onMonthChange,
-    onYearChange,
-    onCancel,
-    onConfirm,
-}: DeclineReportModalProps) {
-    if (!isOpen) return null;
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="decline-report-title"
-            onClick={onCancel}
-        >
-            <div
-                className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <h3 id="decline-report-title" className="text-lg font-bold text-gray-800">
-                    Decline Report
-                </h3>
-                <p className="mt-1 text-xs text-gray-500">
-                    Select the reporting month and year you want to decline.
-                </p>
-
-                <LocationSummary location={location} />
-
-                <div className="mt-4 space-y-3">
-                    <div>
-                        <label className="mb-1 block text-xs font-semibold text-gray-700">Month</label>
-                        <select
-                            value={month}
-                            onChange={(e) => onMonthChange(e.target.value)}
-                            className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500"
-                        >
-                            <option value="">Select Month</option>
-                            {SUBMIT_MONTHS.map((m) => (
-                                <option key={m.value} value={m.value}>{m.label}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="mb-1 block text-xs font-semibold text-gray-700">Year</label>
-                        <input
-                            type="number"
-                            value={year}
-                            onChange={(e) => onYearChange(e.target.value)}
-                            placeholder="YYYY"
-                            className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500"
-                        />
-                    </div>
-
-                    {error && (
-                        <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                            {error}
-                        </div>
-                    )}
-                </div>
-
-                <div className="mt-6 flex justify-end gap-2">
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        disabled={isDeclining}
-                        className="rounded border border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100 disabled:opacity-60"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onConfirm}
-                        disabled={isDeclining || !month || !year}
-                        className="rounded bg-red-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-                    >
-                        {isDeclining ? 'Declining...' : 'Decline'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 export default function PhoPage({
     regions = [], provinces = [], municipalities = [], barangays = []
 }: PhoPageProps) {
@@ -345,7 +256,7 @@ export default function PhoPage({
         setActiveTab(tab);
         setIsFilterApplied(tab === 'mo');
         setSubmitMonth('');
-        setHasExistingSubmission(false);
+        setExistingSubmission(null);
         setAppliedLocation(null);
     };
 
@@ -356,13 +267,13 @@ export default function PhoPage({
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     const [submitReportError, setSubmitReportError] = useState<string | null>(null);
 
-    // ─── Decline Report modal state ──────────────────────────────────────────
-    // Only reviewer roles (Public Health Nurse, Administrator, DOH) can decline
-    // a report; Midwife only ever sees the Submit button.
-    const canDeclineReport = ['Public Health Nurse', 'Administrator', 'DOH'].includes(user?.role ?? '');
-    const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
-    const [isDecliningReport, setIsDecliningReport] = useState(false);
-    const [declineReportError, setDeclineReportError] = useState<string | null>(null);
+    // ─── Review workflow roles ───────────────────────────────────────────────
+    // BHS submit to the Public Health Nurse, who submits to the PHO, who submits
+    // to DOH. Each of those upper levels reviews (confirms / rejects) the level
+    // below it. Administrator can submit but is outside the review chain.
+    const role: string = user?.role ?? '';
+    const canSubmitReport = ['BHS', 'Public Health Nurse', 'PHO', 'Administrator'].includes(role);
+    const canReviewReports = ['Public Health Nurse', 'PHO', 'DOH'].includes(role);
 
     // Called by whichever form is active when its own "Apply Filter(s)"
     // button is clicked — reveals the Submit button and pre-fills the
@@ -401,9 +312,13 @@ export default function PhoPage({
         ),
     };
 
-    // Whether submit_program_report already has a row for this
-    // form + month + year (the Submit button only shows when it doesn't).
-    const [hasExistingSubmission, setHasExistingSubmission] = useState(false);
+    // The submit_program_report row (if any) for this form + month + year + address.
+    // A rejected one can be resubmitted; anything else blocks a new submission.
+    const [existingSubmission, setExistingSubmission] = useState<ExistingSubmission | null>(null);
+    const hasExistingSubmission = existingSubmission !== null && existingSubmission.status !== 'rejected';
+
+    // For Public Health Nurse / PHO: whether everything below has been confirmed yet.
+    const [readiness, setReadiness] = useState<Readiness | null>(null);
     const [checkingExistingSubmission, setCheckingExistingSubmission] = useState(false);
 
     const openSubmitModal = () => {
@@ -417,24 +332,13 @@ export default function PhoPage({
         setSubmitReportError(null);
     };
 
-    const openDeclineModal = () => {
-        setDeclineReportError(null);
-        setIsDeclineModalOpen(true);
-    };
-
-    const closeDeclineModal = () => {
-        if (isDecliningReport) return;
-        setIsDeclineModalOpen(false);
-        setDeclineReportError(null);
-    };
-
     // Checks submit_program_report for a row matching this user + form +
     // month + year. Runs as soon as a filter is applied (so the top-level
     // area can switch between "Submit Report" and "Already Submitted"),
     // and again if the month/year are changed from inside the modal.
     useEffect(() => {
         if (!isFilterApplied || !submitMonth || !submitYear) {
-            setHasExistingSubmission(false);
+            setExistingSubmission(null);
             return;
         }
 
@@ -445,7 +349,7 @@ export default function PhoPage({
             try {
                 const loc = getSubmitLocation();
                 const response = await axios.get('/qfhsis/public/api/reports/submit-program-report', {
-                    params: { form: activeTab, month: submitMonth, year: submitYear },
+                    params: { form: activeTab, month: submitMonth, year: submitYear, mine: 1 },
                 });
                 if (cancelled) return;
                 const rows: any[] = response.data?.data?.data ?? [];
@@ -456,9 +360,14 @@ export default function PhoPage({
                     && (r.province_code ?? '') === loc.province_code
                     && (r.municipality_code ?? '') === loc.municipality_code
                     && norm(r.barangay_codes) === norm(loc.barangay_codes);
-                setHasExistingSubmission(rows.some(sameAddress));
+                const match = rows.find(sameAddress);
+                setExistingSubmission(
+                    match
+                        ? { status: match.status, remarks: match.remarks ?? null, reviewer: match.reviewer?.name ?? null }
+                        : null,
+                );
             } catch {
-                if (!cancelled) setHasExistingSubmission(false);
+                if (!cancelled) setExistingSubmission(null);
             } finally {
                 if (!cancelled) setCheckingExistingSubmission(false);
             }
@@ -469,6 +378,38 @@ export default function PhoPage({
             clearTimeout(timer);
         };
     }, [isFilterApplied, activeTab, submitMonth, submitYear, appliedLocation]);
+
+    // Public Health Nurse / PHO can only submit the consolidated report once every
+    // submission one level down (BHS / nurses) has been confirmed.
+    useEffect(() => {
+        if (!isFilterApplied || !submitMonth || !submitYear || !['Public Health Nurse', 'PHO'].includes(role)) {
+            setReadiness(null);
+            return;
+        }
+
+        let cancelled = false;
+        axios
+            .get('/qfhsis/public/api/reports/submit-program-report/readiness', {
+                params: { form: activeTab, month: submitMonth, year: submitYear },
+            })
+            .then((response) => {
+                if (!cancelled) setReadiness(response.data?.data ?? null);
+            })
+            .catch(() => {
+                if (!cancelled) setReadiness(null);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isFilterApplied, activeTab, submitMonth, submitYear, role, existingSubmission]);
+
+    // The A1 form registers a function that saves its editable Health Facility &
+    // Workforce table; it runs right before the report itself is submitted.
+    const beforeSubmitRef = useRef<(() => Promise<void>) | null>(null);
+    const registerBeforeSubmit = React.useCallback((handler: (() => Promise<void>) | null) => {
+        beforeSubmitRef.current = handler;
+    }, []);
 
     const handleSubmitReport = async () => {
         if (!submitMonth || !submitYear) {
@@ -485,6 +426,11 @@ export default function PhoPage({
         setSubmitReportError(null);
 
         try {
+            // Persist any edits (A1 Health Facility & Workforce) before submitting.
+            if (activeTab === 'a1' && beforeSubmitRef.current) {
+                await beforeSubmitRef.current();
+            }
+
             const response = await axios.post(
                 '/qfhsis/public/api/reports/submit-program-report',
                 {
@@ -502,7 +448,7 @@ export default function PhoPage({
             }
 
             setIsSubmitModalOpen(false);
-            setHasExistingSubmission(true);
+            setExistingSubmission({ status: 'submitted', remarks: null, reviewer: null });
         } catch (err: any) {
             const message =
                 err?.response?.data?.message ??
@@ -510,46 +456,6 @@ export default function PhoPage({
             setSubmitReportError(message);
         } finally {
             setIsSubmittingReport(false);
-        }
-    };
-
-    const handleDeclineReport = async () => {
-        if (!submitMonth || !submitYear) {
-            setDeclineReportError('Please select both month and year.');
-            return;
-        }
-
-        setIsDecliningReport(true);
-        setDeclineReportError(null);
-
-        try {
-            const response = await axios.post(
-                '/qfhsis/public/api/reports/submit-program-report',
-                {
-                    // Persisted into the submit_program_report table with a
-                    // rejected status rather than the default 'submitted'.
-                    form: activeTab,
-                    month: submitMonth,
-                    year: submitYear,
-                    status: 'rejected',
-                    // Address comes from the applied filter
-                    ...getSubmitLocation(),
-                },
-            );
-
-            if (response.status < 200 || response.status >= 300) {
-                throw new Error(response.data?.message || `Request failed with status ${response.status}`);
-            }
-
-            setIsDeclineModalOpen(false);
-            setHasExistingSubmission(true);
-        } catch (err: any) {
-            const message =
-                err?.response?.data?.message ??
-                (err instanceof Error ? err.message : 'Failed to decline report.');
-            setDeclineReportError(message);
-        } finally {
-            setIsDecliningReport(false);
         }
     };
 
@@ -565,36 +471,59 @@ export default function PhoPage({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="PHO Reports" />
 
-            <div className="max-w-7xl mx-auto px-6 pt-6 flex justify-end gap-2">
-                {isFilterApplied && (
-                    checkingExistingSubmission ? (
+            {canReviewReports && (
+                <ReviewSubmissionsPanel
+                    role={role}
+                    regions={regions}
+                    provinces={provinces}
+                    municipalities={municipalities}
+                    barangays={barangays}
+                />
+            )}
+
+            {canSubmitReport && isFilterApplied && (
+                <div className="max-w-7xl mx-auto px-6 pt-6 flex flex-col items-end gap-2">
+                    {checkingExistingSubmission ? (
                         <span className="text-sm text-gray-400 italic">Checking submission status…</span>
-                    ) : hasExistingSubmission ? (
+                    ) : existingSubmission && existingSubmission.status === 'confirmed' ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 border border-emerald-200">
+                            Confirmed{existingSubmission.reviewer ? ` by ${existingSubmission.reviewer}` : ''}
+                        </span>
+                    ) : existingSubmission && existingSubmission.status === 'submitted' ? (
                         <span className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500 border border-gray-200">
-                            Already Submitted
+                            Already Submitted · awaiting review
                         </span>
                     ) : (
                         <>
+                            {existingSubmission && existingSubmission.status === 'rejected' && (
+                                <div className="max-w-xl rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                                    <span className="font-semibold">
+                                        Rejected{existingSubmission.reviewer ? ` by ${existingSubmission.reviewer}` : ''}.
+                                    </span>{' '}
+                                    {existingSubmission.remarks ?? 'No remarks were given.'}
+                                    <div className="mt-0.5 text-xs text-red-500">Fix the report and resubmit it.</div>
+                                </div>
+                            )}
+                            {readiness?.applies && !readiness.ready && (
+                                <div className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                                    {readiness.message}
+                                    <div className="mt-0.5 text-xs text-amber-600">
+                                        {readiness.confirmed} of {readiness.required} confirmed
+                                    </div>
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 onClick={openSubmitModal}
-                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-emerald-700"
+                                disabled={Boolean(readiness?.applies && !readiness.ready)}
+                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                                Submit Report
+                                {existingSubmission?.status === 'rejected' ? 'Resubmit Report' : 'Submit Report'}
                             </button>
-                            {canDeclineReport && (
-                                <button
-                                    type="button"
-                                    onClick={openDeclineModal}
-                                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-red-700"
-                                >
-                                    Decline Report
-                                </button>
-                            )}
                         </>
-                    )
-                )}
-            </div>
+                    )}
+                </div>
+            )}
 
             <div className="max-w-7xl mx-auto px-6 pt-4">
                 <motion.nav
@@ -675,6 +604,7 @@ export default function PhoPage({
                                 municipalities={municipalities}
                                 barangays={barangays}
                                 onApplyFilter={handleFormFilterApplied}
+                                registerSaveHandler={registerBeforeSubmit}
                             />
                         }
                         {activeTab === 'mo' &&
@@ -704,21 +634,6 @@ export default function PhoPage({
                 onCancel={closeSubmitModal}
                 onSubmit={handleSubmitReport}
             />
-
-            {canDeclineReport && (
-                <DeclineReportModal
-                    isOpen={isDeclineModalOpen}
-                    month={submitMonth}
-                    year={submitYear}
-                    isDeclining={isDecliningReport}
-                    location={submitLocationLabels}
-                    error={declineReportError}
-                    onMonthChange={setSubmitMonth}
-                    onYearChange={setSubmitYear}
-                    onCancel={closeDeclineModal}
-                    onConfirm={handleDeclineReport}
-                />
-            )}
         </AppLayout>
     );
 }

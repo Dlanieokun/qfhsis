@@ -93,8 +93,13 @@ Route::middleware(['auth', 'verified', EnsureAccountIsActive::class])->group(fun
 
     Route::get('/api/reports/submit-program-report', [SubmitProgramReportController::class, 'index']);
     Route::post('/api/reports/submit-program-report', [SubmitProgramReportController::class, 'store']);
+    Route::get('/api/reports/submit-program-report/readiness', [SubmitProgramReportController::class, 'readinessCheck']);
     Route::get('/api/reports/submit-program-report/{submitProgramReport}', [SubmitProgramReportController::class, 'show']);
+    Route::post('/api/reports/submit-program-report/{submitProgramReport}/review', [SubmitProgramReportController::class, 'review']);
     Route::delete('/api/reports/submit-program-report/{submitProgramReport}', [SubmitProgramReportController::class, 'destroy']);
+
+    Route::get('/api/reports/facility-workforce', [\App\Http\Controllers\FacilityWorkforceController::class, 'show']);
+    Route::put('/api/reports/facility-workforce', [\App\Http\Controllers\FacilityWorkforceController::class, 'save']);
 
     Route::get('/fhsis/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])
         ->name('dashboard');
