@@ -21,13 +21,95 @@ class FacilityWorkforceController extends Controller
 
         $record = FacilityWorkforceData::where($this->identity($scope))->first();
 
+        [$totals, $count] = $this->aggregate($scope);
+
         return response()->json([
             'success' => true,
             'data' => [
+                // The requester's own saved record for exactly this year + address
                 'rows' => $record?->data ?? (object) [],
                 'updated_at' => $record?->updated_at,
+                // Sum of every submitted record that falls inside the selected filters
+                'totals' => $totals ?: (object) [],
+                'submissions' => $count,
             ],
         ]);
+    }
+
+    /**
+     * Add up the Male / Female / Total values of every submitted BHS record whose
+     * address lies inside the filter (region / province / municipality, and the
+     * selected barangays when any are chosen).
+     *
+     * @return array{0: array<string, array<string, string>>, 1: int}
+     */
+    private function aggregate(array $scope): array
+    {
+        $query = FacilityWorkforceData::where('year', $scope['year']);
+        foreach (['region_code', 'province_code', 'municipality_code'] as $field) {
+            if ($scope[$field] !== '') {
+                $query->where($field, $scope[$field]);
+            }
+        }
+
+        $selected = array_map('strval', $scope['barangay_codes']);
+        $totals = [];
+        $count = 0;
+
+        foreach ($query->get() as $record) {
+            $codes = array_map('strval', $record->barangay_codes ?? []);
+            if ($selected && array_diff($codes, $selected)) {
+                continue; // record covers barangays outside the selection
+            }
+
+            // Only data that was actually submitted (a1 report by a BHS, not rejected)
+            $submitted = SubmitProgramReport::where('user_id', $record->updated_by)
+                ->where('form', 'a1')
+                ->where('year', $record->year)
+                ->where('region_code', $record->region_code)
+                ->where('province_code', $record->province_code)
+                ->where('municipality_code', $record->municipality_code)
+                ->whereIn('status', ['submitted', 'confirmed'])
+                ->whereHas('user', fn ($u) => $u->where('role', 'BHS'))
+                ->get()
+                ->contains(fn ($r) => $this->barangayKey($r->barangay_codes ?? []) === $record->barangay_key);
+
+            if (! $submitted) {
+                continue;
+            }
+
+            $count++;
+            foreach ($record->data ?? [] as $key => $row) {
+                $male = $this->number($row['male'] ?? '');
+                $female = $this->number($row['female'] ?? '');
+                $total = $this->number($row['total'] ?? '');
+                // A row with only male/female entered still contributes to the total.
+                if ($total === null && ($male !== null || $female !== null)) {
+                    $total = ($male ?? 0) + ($female ?? 0);
+                }
+                foreach (['male' => $male, 'female' => $female, 'total' => $total] as $field => $value) {
+                    if ($value !== null) {
+                        $totals[$key][$field] = ($totals[$key][$field] ?? 0) + $value;
+                    }
+                }
+            }
+        }
+
+        $out = [];
+        foreach ($totals as $key => $fields) {
+            foreach ($fields as $field => $value) {
+                $out[$key][$field] = (string) $value;
+            }
+        }
+
+        return [$out, $count];
+    }
+
+    private function number(mixed $value): int|float|null
+    {
+        $value = str_replace(',', '', trim((string) $value));
+
+        return is_numeric($value) ? $value + 0 : null;
     }
 
     public function save(Request $request): JsonResponse

@@ -293,8 +293,20 @@ export default function A1AllPrograms({
     // Previously saved facility & workforce edits for this year + address
     try {
       const saved = await axios.get('/qfhsis/public/api/reports/facility-workforce', { params: facilityScope() });
-      setFacilityValues(saved.data?.data?.rows ?? {});
-      setFacilityStatus(null);
+      const own = saved.data?.data?.rows ?? {};
+      const totals = saved.data?.data?.totals ?? {};
+      const submissions: number = saved.data?.data?.submissions ?? 0;
+      if (Object.keys(own).length > 0) {
+        // Values this user already saved for exactly this year + address
+        setFacilityValues(own);
+        setFacilityStatus(null);
+      } else {
+        // Otherwise: the sum of every submitted record matching the filters
+        setFacilityValues(totals);
+        setFacilityStatus(
+          submissions > 0 ? `Totals added up from ${submissions} submitted report${submissions === 1 ? '' : 's'}.` : null,
+        );
+      }
     } catch (err) {
       console.warn('Saved facility & workforce data failed to load', err);
       setFacilityValues({});

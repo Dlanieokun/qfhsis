@@ -64,3 +64,29 @@ test('a confirmed annual report locks the facility data', function () {
     $this->actingAs($user)->putJson(FACILITY_URL, facilityScope(['barangay_codes' => ['B2', 'B1']]) + ['rows' => []])
         ->assertUnprocessable();
 });
+
+test('filtering adds up submitted bhs records inside the selected address', function () {
+    $rowsFor = fn ($n, $f, $t) => ['nurses' => ['male' => (string) $n, 'female' => (string) $f, 'total' => (string) $t, 'remarks' => '']];
+
+    foreach ([['B1', 1, 2, 3], ['B2', 0, 4, 4]] as [$brgy, $m, $f, $t]) {
+        $bhs = facilityUser();
+        $this->actingAs($bhs)->putJson(FACILITY_URL, facilityScope(['barangay_codes' => [$brgy]]) + ['rows' => $rowsFor($m, $f, $t)])->assertOk();
+        SubmitProgramReport::create([
+            'user_id' => $bhs->id, 'form' => 'a1', 'month' => '12', 'year' => '2026',
+            'region_code' => 'R1', 'province_code' => 'P1', 'municipality_code' => 'M1',
+            'barangay_codes' => [$brgy], 'status' => 'submitted',
+        ]);
+    }
+
+    // Saved but never submitted -> not counted.
+    $draft = facilityUser();
+    $this->actingAs($draft)->putJson(FACILITY_URL, facilityScope(['barangay_codes' => ['B9']]) + ['rows' => $rowsFor(9, 9, 18)]);
+
+    $nurse = facilityUser('Public Health Nurse');
+    $all = $this->actingAs($nurse)->getJson(FACILITY_URL . '?' . http_build_query(facilityScope(['barangay_codes' => []])))->assertOk();
+    expect($all->json('data.submissions'))->toBe(2)
+        ->and($all->json('data.totals.nurses'))->toBe(['male' => '1', 'female' => '6', 'total' => '7']);
+
+    $one = $this->actingAs($nurse)->getJson(FACILITY_URL . '?' . http_build_query(facilityScope(['barangay_codes' => ['B1']])))->assertOk();
+    expect($one->json('data.submissions'))->toBe(1)->and($one->json('data.totals.nurses.total'))->toBe('3');
+});
