@@ -78,24 +78,26 @@ class SyncController extends Controller
     //  *_code columns at all), so matching happens on names, not codes.
     //
     //  'relation' explains how a table gets back to household_profiles:
-    //    - 'direct'   the table IS household_profiles.
+    //    - 'direct'   the table carries its own barangay / municipality /
+    //                 province / region name columns (household_profiles
+    //                 itself, morbidity_records) and is filtered in place.
     //    - 'profile'  the table has a column pointing straight at
     //                 household_profiles.id (e.g. profileId).
     //    - 'maternal' the table has a column pointing at
     //                 maternal_care_records.id, which itself points at
     //                 household_profiles via its own profileId.
     //
-    //  Tables NOT listed here — child_sick_records, geriatric_screening_records,
+    //  Tables NOT listed here — geriatric_screening_records,
     //  filariasis_registry_table, leprosy_registry, rabies_records,
-    //  schistosomiasis_registry, sth_registry_records, mental_health_records,
-    //  morbidity_records — have no household_profiles linkage column in their
-    //  current schema, so there's nothing to scope them by; they're still pulled
-    //  in full until a link column is added. (morbidity_records carries a
-    //  householdId string, but it isn't a foreign key into household_profiles.id,
-    //  so it can't be scoped the same way infant_deaths/maternal_deaths are below.
-    //  environmental_health_records now has profileId and IS location-scoped below.)
+    //  schistosomiasis_registry, sth_registry_records — have no household_profiles
+    //  linkage column or location columns in their current schema, so there's
+    //  nothing to scope them by; they're still pulled in full until one is added.
+    //  (environmental_health_records (profileId) and mental_health_records
+    //  (profile_id) have a profile link; morbidity_records has its own location
+    //  columns — all three ARE location-scoped below.)
     private array $locationScopedTables = [
         'household_profiles' => ['relation' => 'direct'],
+        'morbidity_records'  => ['relation' => 'direct'],
 
         'family_planning_records'           => ['relation' => 'profile', 'column' => 'profileId'],
         'classification_metrics'            => ['relation' => 'profile', 'column' => 'profile_id'],
@@ -105,6 +107,7 @@ class SyncController extends Controller
         'child_immunization_records'        => ['relation' => 'profile', 'column' => 'profileId'],
         'child_immunization_school_records' => ['relation' => 'profile', 'column' => 'profileId'],
         'child_nutrition_records'           => ['relation' => 'profile', 'column' => 'profileId'],
+        'child_sick_records'                => ['relation' => 'profile', 'column' => 'profileId'],
         'oral_health_care'                  => ['relation' => 'profile', 'column' => 'profile_id'],
         'philpen_risk_assessments'          => ['relation' => 'profile', 'column' => 'profile_id'],
         'eyes_screenings'                    => ['relation' => 'profile', 'column' => 'profile_id'],
@@ -121,7 +124,168 @@ class SyncController extends Controller
         'maternal_deaths'                    => ['relation' => 'profile', 'column' => 'profile_id'],
 
         'environmental_health_records'       => ['relation' => 'profile', 'column' => 'profileId'],
+        'mental_health_records'              => ['relation' => 'profile', 'column' => 'profile_id'],
     ];
+
+    // ─────────────────────────────────────────────────────────────
+    //  Parent → child FK remapping (PUSH)
+    // ─────────────────────────────────────────────────────────────
+    //  When a newInsert parent row is pushed, its Android-local id is
+    //  dropped and MySQL assigns a fresh one. Every child row in the same
+    //  payload that still carries the old local id must be rewritten to
+    //  the server id, or its insert fails the FK constraint (e.g.
+    //  family_planning_follow_ups.recordId → family_planning_records.id).
+    //
+    //  parent DB table => [ child JSON key => [candidate FK keys] ]
+    //  Both camelCase and snake_case keys are listed where Android and the
+    //  DB disagree (e.g. infant_deaths sends profileId, stores profile_id).
+    private array $childFkRemap = [
+        'household_profiles' => [
+            'familyPlanningRecords'      => ['profileId'],
+            'maternalCareRecords'        => ['profileId'],
+            'classificationEntities'     => ['profile_id', 'profileId'],
+            'followUpEntities'           => ['profileId'],
+            'dropOutEntities'            => ['profileId'],
+            'childImmunizationRecords'   => ['profileId'],
+            'childImmunizationSchoolRecords' => ['profileId'],
+            'childNutritionRecords'      => ['profileId'],
+            'childSickRecords'           => ['profileId'],
+            'oralHealthCareRecords'      => ['profile_id', 'profileId'],
+            'philpenRiskAssessments'     => ['profile_id', 'profileId'],
+            'eyesScreenings'             => ['profile_id', 'profileId'],
+            'cervicalCancerScreenings'   => ['profile_id', 'profileId'],
+            'infantDeathRecords'         => ['profileId', 'profile_id'],
+            'maternalDeathRecords'       => ['profileId', 'profile_id'],
+            'environmentalHealthRecords' => ['profileId'],
+            'mentalHealthRecords'        => ['profile_id', 'profileId'],
+        ],
+        'family_planning_records' => [
+            'followUpEntities' => ['recordId'],
+            'dropOutEntities'  => ['recordId'],
+        ],
+        'maternal_care_records' => [
+            'prenatal8AncEntities'            => ['maternalRecordId'],
+            'prenatalImmunizationEntities'    => ['maternalRecordId'],
+            'prenatalSupplementationEntities' => ['maternal_record_id', 'maternalRecordId'],
+            'prenatalLabScreeningEntities'    => ['maternalRecordId'],
+            'intrapartumEntities'             => ['maternalRecordId'],
+            'postpartumEntities'              => ['maternalRecordId'],
+        ],
+    ];
+
+    // Child FK slots already rewritten during this push ("jsonKey|index|fk").
+    // Prevents chained remaps: local 1 → server 7, then a different new
+    // parent with local id 7 must not re-hijack the rows just set to 7.
+    private array $remappedFkSlots = [];
+
+    /**
+     * Rewrite child FK references in the pending request payload from a
+     * parent's Android-local id to its newly assigned server id.
+     */
+    private function remapChildForeignKeys(Request $request, string $parentTable, $localId, $serverId): void
+    {
+        if (!isset($this->childFkRemap[$parentTable])) {
+            return;
+        }
+
+        $allData = $request->all();
+
+        foreach ($this->childFkRemap[$parentTable] as $childJsonKey => $fkKeys) {
+            if (!isset($allData[$childJsonKey]) || !is_array($allData[$childJsonKey])) {
+                continue;
+            }
+
+            foreach ($allData[$childJsonKey] as $i => $child) {
+                if (!is_array($child)) {
+                    continue;
+                }
+                foreach ($fkKeys as $fk) {
+                    $slot = "{$childJsonKey}|{$i}|{$fk}";
+                    if (
+                        array_key_exists($fk, $child)
+                        && !isset($this->remappedFkSlots[$slot])
+                        && (string) $child[$fk] === (string) $localId
+                    ) {
+                        $allData[$childJsonKey][$i][$fk] = $serverId;
+                        $this->remappedFkSlots[$slot] = true;
+                    }
+                }
+            }
+        }
+
+        $request->replace($allData);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Duplicate detection for re-sent newInsert records (PUSH)
+    // ─────────────────────────────────────────────────────────────
+    //  Natural keys identify "the same record" even after it was edited
+    //  on the device (e.g. a family planning registration whose method was
+    //  changed and re-uploaded). Tables not listed here fall back to an
+    //  exact match on every column the app sent, which still catches plain
+    //  retries / Upload-then-Sync re-sends.
+    private array $naturalKeys = [
+        'household_profiles'      => ['barangay', 'hhNumber', 'familyNumber', 'memberLastName', 'memberFirstName', 'dob'],
+        'family_planning_records' => ['profileId', 'registrationDate'],
+    ];
+
+    // Columns that legitimately differ between two uploads of the same
+    // record, so they're left out of the exact-match fallback.
+    private array $dedupeIgnoredColumns = [
+        'created_at', 'updated_at', 'updatedAt', 'isSynced', 'synced',
+        'newInsert', 'syncTimestamp', 'sync_timestamp',
+    ];
+
+    private array $columnCache = [];
+
+    /**
+     * Find the server row a re-sent newInsert record already created, or
+     * null if it's genuinely new. $record must already have its PK removed.
+     */
+    private function findExistingRowId(string $dbTableName, string $pkName, array $record)
+    {
+        if (!isset($this->columnCache[$dbTableName])) {
+            $this->columnCache[$dbTableName] = array_flip(Schema::getColumnListing($dbTableName));
+        }
+        $columns = $this->columnCache[$dbTableName];
+
+        $match = null;
+
+        // Natural key — only usable when every key column is present and filled.
+        if (isset($this->naturalKeys[$dbTableName])) {
+            $keys = $this->naturalKeys[$dbTableName];
+            $complete = true;
+            foreach ($keys as $key) {
+                if (!isset($columns[$key]) || !isset($record[$key]) || $record[$key] === '') {
+                    $complete = false;
+                    break;
+                }
+            }
+            if ($complete) {
+                $match = array_intersect_key($record, array_flip($keys));
+            }
+        }
+
+        // Fallback — exact match on every real, scalar column the app sent.
+        if ($match === null) {
+            $match = array_diff_key(
+                array_intersect_key($record, $columns),
+                array_flip(array_merge($this->dedupeIgnoredColumns, [$pkName]))
+            );
+            $match = array_filter($match, fn ($v) => $v === null || is_scalar($v));
+        }
+
+        if (empty($match)) {
+            return null;
+        }
+
+        $query = DB::table($dbTableName);
+        foreach ($match as $column => $value) {
+            $value === null ? $query->whereNull($column) : $query->where($column, $value);
+        }
+
+        return $query->orderBy($pkName)->value($pkName);
+    }
 
     // ─────────────────────────────────────────────────────────────
     //  PUSH  –  Android  →  Laravel
@@ -129,6 +293,8 @@ class SyncController extends Controller
     public function syncFromAndroid(Request $request)
     {
         $skippedRecords = [];
+        $idMap = [];
+        $this->remappedFkSlots = [];
 
         try {
             foreach ($this->tablesMapping as $jsonKey => $dbTableName) {
@@ -146,7 +312,7 @@ class SyncController extends Controller
                     continue;
                 }
 
-                DB::transaction(function () use ($dbTableName, $records, &$skippedRecords, &$request) {
+                DB::transaction(function () use ($jsonKey, $dbTableName, $records, &$skippedRecords, &$idMap, &$request) {
                     foreach ($records as $record) {
 
                         // GUARD: skip anything that isn't a proper associative record
@@ -421,41 +587,35 @@ class SyncController extends Controller
                         }
 
                         if ($isNewInsert) {
-                            if ($dbTableName === 'household_profiles') {
-                                // The Android app assigns its own local auto-increment ID.
-                                // We must NOT forward that ID to the server — instead we
-                                // strip it and let MySQL generate an authoritative one.
-                                // We then rewrite every occurrence of the old Android-local
-                                // ID in $request so that all child tables processed later
-                                // in the same push (familyPlanningRecords, maternalCareRecords,
-                                // etc.) automatically carry the correct server profile ID.
-                                $syncId = $pkValue;                 // Android-local ID
-                                unset($record[$jsonPkName]);        // Drop it; server will assign
+                            // The Android-generated PK is local-only and must not dictate
+                            // the server's row ID. Dropping both the JSON key and the DB
+                            // column name covers tables whose key name differs between
+                            // Android JSON and the DB schema (e.g. geriatric_screening_records:
+                            // recordNo / record_no).
+                            unset($record[$jsonPkName], $record[$pkName]);
 
-                                $newId = DB::table($dbTableName)->insertGetId($record);
+                            $serverId = null;
 
-                                // Walk every scalar value in the full request payload and
-                                // swap the Android-local profile ID for the server-assigned one.
-                                // Both int and string representations are matched to handle
-                                // JSON decoding inconsistencies across Android API versions.
-                                $allData = $request->all();
-                                array_walk_recursive($allData, function (&$value) use ($syncId, $newId) {
-                                    if ($value === $syncId || $value === (string) $syncId) {
-                                        $value = $newId;
-                                    }
-                                });
-                                $request->replace($allData);
+                            // DUPLICATE GUARD: the app keeps newInsert = true and its
+                            // local id until it learns the server id, so a retried upload,
+                            // Upload followed by Sync, or a later edit re-sends the same
+                            // record as "new". Match it to the row it already created and
+                            // update that row instead of inserting a second copy.
+                            $existingId = $this->findExistingRowId($dbTableName, $pkName, $record);
 
+                            if ($existingId !== null) {
+                                $update = $record;
+                                unset($update['created_at']);
+                                DB::table($dbTableName)->where($pkName, $existingId)->update($update);
+                                $serverId = $existingId;
+
+                                Log::info("Sync push: matched re-sent newInsert record to existing row on {$dbTableName}", [
+                                    'local_id'  => $pkValue,
+                                    'server_id' => $existingId,
+                                ]);
                             } else {
-                                // For every other table, the Android-generated PK is also
-                                // local-only and must not dictate the server's row ID.
-                                // Dropping both the JSON key and the DB column name covers
-                                // tables whose key name differs between Android JSON and the
-                                // DB schema (e.g. geriatric_screening_records: recordNo / record_no).
-                                unset($record[$jsonPkName], $record[$pkName]);
-
                                 try {
-                                    DB::table($dbTableName)->insert($record);
+                                    $serverId = DB::table($dbTableName)->insertGetId($record, $pkName);
                                 } catch (\Illuminate\Database\QueryException $e) {
                                     // SQLSTATE 23000 covers two distinct violation types:
                                     //   • Foreign key constraint failure  (ER_NO_REFERENCED_ROW_2, errno 1452)
@@ -478,6 +638,18 @@ class SyncController extends Controller
                                         throw $e;
                                     }
                                 }
+                            }
+
+                            if ($serverId !== null) {
+                                // Parent tables: point child records later in this push
+                                // (tables are processed parent-first per $tablesMapping)
+                                // at the server ID instead of the Android-local one.
+                                $this->remapChildForeignKeys($request, $dbTableName, $pkValue, $serverId);
+
+                                // Returned to the app so it can replace its local id with
+                                // the server id and clear newInsert — otherwise the next
+                                // upload sends this record as "new" again.
+                                $idMap[$jsonKey][] = ['localId' => $pkValue, 'serverId' => $serverId];
                             }
                         } else {
                             // Edited record — upsert: update if the row already
@@ -511,6 +683,7 @@ class SyncController extends Controller
             $response = [
                 'status'  => 'success',
                 'message' => 'Database synchronized successfully on server backend.',
+                'id_map'  => $idMap,
             ];
 
             if (!empty($skippedRecords)) {
@@ -576,8 +749,8 @@ class SyncController extends Controller
 
         switch ($relation['relation']) {
             case 'direct':
-                // The table IS household_profiles — filter it in place.
-                $this->constrainToUserLocation($query, $user);
+                // The table has its own location columns — filter it in place.
+                $this->constrainToUserLocation($query, $user, $dbTableName);
                 break;
 
             case 'profile':
@@ -610,24 +783,24 @@ class SyncController extends Controller
 
     /**
      * Add the actual barangay/municipality/province/region where-clause to
-     * a household_profiles query (or subquery), using the narrowest level
-     * the user actually has assigned (barangay > municipality > province
-     * > region).
+     * a query (or subquery) on $table — household_profiles by default —
+     * using the narrowest level the user actually has assigned
+     * (barangay > municipality > province > region).
      */
-    private function constrainToUserLocation($query, $user): void
+    private function constrainToUserLocation($query, $user, string $table = 'household_profiles'): void
     {
         // A user can be assigned to more than one barangay (e.g. a midwife
         // covering several barangays), so it's stored as JSON on the users
         // table while the other levels are single values.
         $userBarangays = $this->decodeJsonList($user->barangay ?? null);
 
-        if (!empty($userBarangays) && Schema::hasColumn('household_profiles', 'barangay')) {
+        if (!empty($userBarangays) && Schema::hasColumn($table, 'barangay')) {
             $query->whereIn('barangay', $userBarangays);
-        } elseif (!empty($user->municipality) && Schema::hasColumn('household_profiles', 'municipality')) {
+        } elseif (!empty($user->municipality) && Schema::hasColumn($table, 'municipality')) {
             $query->where('municipality', $user->municipality);
-        } elseif (!empty($user->province) && Schema::hasColumn('household_profiles', 'province')) {
+        } elseif (!empty($user->province) && Schema::hasColumn($table, 'province')) {
             $query->where('province', $user->province);
-        } elseif (!empty($user->region) && Schema::hasColumn('household_profiles', 'region')) {
+        } elseif (!empty($user->region) && Schema::hasColumn($table, 'region')) {
             $query->where('region', $user->region);
         }
     }
