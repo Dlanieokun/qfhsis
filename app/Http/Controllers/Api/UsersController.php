@@ -110,6 +110,35 @@ class UsersController extends Controller
         ], 200);
     }
 
+    /**
+     * Check whether a user's account is inactive, by users.id.
+     * Any status other than 'Active' counts as inactive (same rule as login
+     * and the EnsureAccountIsActive middleware).
+     */
+    public function checkStatus(int $id)
+    {
+        $user = User::select(['id', 'status'])->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'User not found.',
+            ], 404);
+        }
+
+        $isInactive = $user->status !== 'Active';
+
+        return response()->json([
+            'status'       => 'success',
+            'user_id'      => $user->id,
+            'user_status'  => $user->status,
+            'is_inactive'  => $isInactive,
+            'message'      => $isInactive
+                ? 'Your account is currently suspended or inactive.'
+                : 'Account is active.',
+        ], 200);
+    }
+
     public function insertloop(int $loop)
     {
         try {

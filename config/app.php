@@ -16,6 +16,13 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
 
     /*
+    | Web application version, shown under the QFHSIS title in the sidebar.
+    | Bump APP_VERSION in .env when deploying a new web release.
+    */
+
+    'version' => env('APP_VERSION', '1.0.0'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------

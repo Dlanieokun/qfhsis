@@ -7,6 +7,7 @@ use App\Http\Controllers\SubmitProgramReportController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\AccountApprovalController;
 use App\Http\Controllers\Api\MorbidityReportController;
+use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Middleware\EnsureAccountIsActive;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
@@ -107,6 +108,10 @@ Route::middleware(['auth', 'verified', EnsureAccountIsActive::class])->group(fun
     Route::get('/fhsis/approvals', [AccountApprovalController::class, 'index'])->name('approvals.index');
     Route::post('/fhsis/approvals/{user}/approve', [AccountApprovalController::class, 'approve'])->name('approvals.approve');
     Route::delete('/fhsis/approvals/{user}', [AccountApprovalController::class, 'reject'])->name('approvals.reject');
+
+    // Mobile APK upload page (administrators only)
+    Route::get('/fhsis/app-version', [AppVersionController::class, 'page'])->name('app-version.index');
+    Route::post('/fhsis/app-version', [AppVersionController::class, 'uploadFromWeb'])->name('app-version.upload');
 });
 
 require __DIR__.'/settings.php';

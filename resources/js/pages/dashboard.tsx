@@ -68,6 +68,12 @@ interface Props {
     };
     reports?: Report[];
     moduleCounts?: ModuleCounts;
+    period?: {
+        month: number;
+        year: number;
+        label: string;
+    };
+    location?: string | null;
 }
 
 type ModuleKey = keyof ModuleCounts;
@@ -199,7 +205,9 @@ function DashboardCard({ className = '', style, children }: DashboardCardProps) 
 /**
  * Main Dashboard Component
  */
-export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Props) {
+export default function Dashboard({ auth, reports = [], moduleCounts = {}, period, location }: Props) {
+    const periodLabel =
+        period?.label ?? new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     // Breadcrumbs for navigation
     const breadcrumbs: BreadcrumbItem[] = [
         { label: 'Home', href: '/dashboard' },
@@ -278,7 +286,21 @@ export default function Dashboard({ auth, reports = [], moduleCounts = {} }: Pro
                     {/* Program directory */}
                     <div className="mb-10">
                         <h2 className="text-xl font-bold text-[#1B3B66] font-['Zilla_Slab'] mb-1">Program Records</h2>
-                        <p className="text-sm text-slate-500 mb-6">Choose a program to see every register kept for it.</p>
+                        <p className="text-sm text-slate-500 mb-6">
+                            {activeCategory === 'household' ? (
+                                <>All records</>
+                            ) : (
+                                <>
+                                    Records entered in <span className="font-semibold text-slate-700">{periodLabel}</span>
+                                </>
+                            )}
+                            {location ? (
+                                <>
+                                    {' '}for <span className="font-semibold text-slate-700">{location}</span>
+                                </>
+                            ) : null}
+                            . Choose a program to see every register kept for it.
+                        </p>
 
                         <div className="flex flex-col lg:flex-row gap-6">
                             {/* Sidebar directory */}

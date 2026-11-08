@@ -30,6 +30,7 @@ const NAV_ITEMS = [
     { label: 'Account Approvals', href: '/qfhsis/public/fhsis/approvals',         icon: ClipboardCheck },
     { label: 'User Management',  href: '/qfhsis/public/fhsis/users',             icon: Users },
     { label: 'Manage Users',     href: '/qfhsis/public/fhsis/manage-users',      icon: UserCog },
+    // { label: 'App Version',      href: '/qfhsis/public/fhsis/app-version',       icon: Smartphone },
 ];
 
 // Public URL path of the APK (file lives in laravel's public/downloads/qfhsis.apk)
@@ -45,7 +46,9 @@ const ROLE_NAV: Record<string, string[]> = {
 };
 
 export default function AppSidebar() {
-    const { auth, url } = usePage<SharedData & { url: string }>().props;
+    const { auth, url, appVersion, webVersion } = usePage<
+        SharedData & { url: string; appVersion?: string | null; webVersion?: string | null }
+    >().props;
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : (url ?? '');
 
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -97,7 +100,9 @@ export default function AppSidebar() {
         return currentPath === href || currentPath.startsWith(href + '/');
     }
 
-    const apkUrl = typeof window !== 'undefined' ? `${window.location.origin}${APK_PATH}` : APK_PATH;
+    // Version query busts phone/browser caches so a new upload is always fetched.
+    const apkHref = appVersion ? `${APK_PATH}?v=${encodeURIComponent(appVersion)}` : APK_PATH;
+    const apkUrl = typeof window !== 'undefined' ? `${window.location.origin}${apkHref}` : apkHref;
 
     const user = auth?.user;
 
@@ -107,6 +112,7 @@ export default function AppSidebar() {
     const canApprove = isAdmin || Boolean((user as { allow?: boolean } | undefined)?.allow);
     const visibleNavItems = NAV_ITEMS.filter((item) => {
         if (item.label === 'Account Approvals') return canApprove;
+        if (item.label === 'App Version') return isAdmin;
         // Manage Users: only for non-administrators who have been granted "allow".
         if (item.label === 'Manage Users') {
             return !isAdmin && Boolean((user as { allow?: boolean } | undefined)?.allow);
@@ -159,14 +165,17 @@ export default function AppSidebar() {
                             className="h-12 w-12 object-contain" 
                         />
                     </motion.div>
-                    <motion.span 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 0.4 }}
-                        className="text-2xl font-bold tracking-wide"
+                        className="flex flex-col"
                     >
-                        QFHSIS
-                    </motion.span>
+                        <span className="text-2xl font-bold tracking-wide">QFHSIS</span>
+                        {webVersion && (
+                            <span className="text-xs font-medium text-white/60">Web v{webVersion}</span>
+                        )}
+                    </motion.div>
                 </div>
 
                 {/* ── Nav ──────────────────────────────────────────────────── */}
@@ -208,7 +217,12 @@ export default function AppSidebar() {
                             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-white/70 transition-all duration-200 hover:scale-[1.02] hover:bg-white/10 hover:text-white"
                         >
                             <Smartphone className="h-4 w-4 shrink-0" />
-                            Download Application
+                            <span className="flex-1">Download Application</span>
+                            {appVersion && (
+                                <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+                                    v{appVersion}
+                                </span>
+                            )}
                         </button>
                     </motion.div>
                 </motion.nav>
@@ -339,11 +353,14 @@ export default function AppSidebar() {
                                 <div className="rounded-xl bg-white p-3 shadow-lg">
                                     <QRCodeSVG value={apkUrl} size={200} level="M" />
                                 </div>
+                                <span className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200">
+                                    {appVersion ? `Version ${appVersion}` : 'Version not available'}
+                                </span>
                                 <p className="text-center text-sm text-white/80">
                                     Scan this QR code with your Android phone to download the QFHSIS app.
                                 </p>
                                 <a
-                                    href={APK_PATH}
+                                    href={apkHref}
                                     download
                                     className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-all hover:bg-emerald-500"
                                 >

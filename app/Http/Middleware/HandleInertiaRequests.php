@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\AppVersion;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -49,6 +50,10 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            // Web application version (APP_VERSION in .env), shown under the sidebar title.
+            'webVersion' => config('app.version'),
+            // Latest uploaded mobile APK version (shown in the sidebar and download modal).
+            'appVersion' => fn () => AppVersion::latest('id')->value('version_name'),
         ]);
     }
 }

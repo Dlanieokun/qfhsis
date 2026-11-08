@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PhoReportController;
 use App\Http\Controllers\M28PAAController;
 use App\Http\Controllers\Api\A1AllProgramController;
 use App\Http\Controllers\Api\MorbidityReportController;
+use App\Http\Controllers\Api\AppVersionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -21,6 +22,12 @@ Route::post('/mobile/login', [UsersController::class, 'login']);
 Route::post('/sync/database', [SyncController::class, 'syncFromAndroid']);
 Route::post('/upload', [SyncController::class, 'uploadFromAndroid']);
 Route::get('/sync/insert/{loop}', [UsersController::class, 'insertloop']);
+
+// Check whether a user's account is inactive (any status other than 'Active').
+Route::get('/users/{id}/status', [UsersController::class, 'checkStatus'])->whereNumber('id');
+
+// Mobile app version check (public so the app can check before login).
+Route::get('/app-version/latest', [AppVersionController::class, 'latest']);
 
 Route::get('/hello', function () {
     return response()->json(['message' => 'Welcome to your Laravel 12 API!']);
@@ -60,6 +67,9 @@ Route::delete('/reports/m2-morbidity/{morbidityRecord}', [MorbidityReportControl
 // Guarded backend routes — require a valid Sanctum bearer token.
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [UsersController::class, 'logout']);
+
+    // Upload a new APK + version name (administrators only, checked in controller).
+    Route::post('/app-version/upload', [AppVersionController::class, 'upload']);
 
     Route::get('/user', function (Request $request) {
         return $request->user();
