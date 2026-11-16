@@ -1,6 +1,6 @@
 import { Head, useForm } from '@inertiajs/react';
 import axios from 'axios';
-import { AtSign, Building2, LoaderCircle, Lock, Mail, MapPin, Phone, ShieldCheck, Stethoscope, User } from 'lucide-react';
+import { AtSign, Building2, Eye, EyeOff, LoaderCircle, Lock, Mail, MapPin, Phone, ShieldCheck, Stethoscope, User } from 'lucide-react';
 import { FormEventHandler, useEffect, useState } from 'react';
 
 import InputError from '@/components/input-error';
@@ -20,7 +20,15 @@ interface RegisterForm {
     contact_number: number | '';
     password: string;
     password_confirmation: string;
-    role: 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW';
+    role:
+        | 'Doctor'
+        | 'Public Health Nurse'
+        | 'BHS'
+        | 'BHW'
+        | 'Sanitation Inspector'
+        | 'Municipal Nutrition Action Officer'
+        | 'Med Tech'
+        | 'FHSIS Coordinator';
     assigned_facility: string;
     region: string;
     region_code: string;
@@ -58,6 +66,9 @@ const selectClass =
 
 const labelClass = 'text-sm font-semibold text-slate-700';
 
+const toggleClass =
+    'absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 focus-visible:text-blue-600 focus-visible:outline-none transition-colors';
+
 export default function Register() {
     const { data, setData, post, processing, errors, reset } = useForm<RegisterForm>({
         name: '',
@@ -82,6 +93,8 @@ export default function Register() {
     const [provinces, setProvinces] = useState<LocationItem[]>([]);
     const [municipalities, setMunicipalities] = useState<LocationItem[]>([]);
     const [barangays, setBarangays] = useState<LocationItem[]>([]);
+    const [showPassword, setShowPassword] = useState(false);
+    const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false);
 
     useEffect(() => {
         axios.get(`${LOCATION_API}/regions`).then((res) => setRegions(res.data));
@@ -351,7 +364,7 @@ export default function Register() {
                                         </div>
                                         <Input
                                             id="password"
-                                            type="password"
+                                            type={showPassword ? 'text' : 'password'}
                                             required
                                             tabIndex={5}
                                             autoComplete="new-password"
@@ -359,8 +372,17 @@ export default function Register() {
                                             onChange={(e) => setData('password', e.target.value)}
                                             disabled={processing}
                                             placeholder="••••••••"
-                                            className={`pl-11 ${inputClass}`}
+                                            className={`pl-11 pr-11 ${inputClass}`}
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword((v) => !v)}
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                            aria-pressed={showPassword}
+                                            className={toggleClass}
+                                        >
+                                            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                        </button>
                                     </div>
                                     <InputError message={errors.password} />
                                 </div>
@@ -375,7 +397,7 @@ export default function Register() {
                                         </div>
                                         <Input
                                             id="password_confirmation"
-                                            type="password"
+                                            type={showPasswordConfirmation ? 'text' : 'password'}
                                             required
                                             tabIndex={6}
                                             autoComplete="new-password"
@@ -383,8 +405,17 @@ export default function Register() {
                                             onChange={(e) => setData('password_confirmation', e.target.value)}
                                             disabled={processing}
                                             placeholder="••••••••"
-                                            className={`pl-11 ${inputClass}`}
+                                            className={`pl-11 pr-11 ${inputClass}`}
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPasswordConfirmation((v) => !v)}
+                                            aria-label={showPasswordConfirmation ? 'Hide password confirmation' : 'Show password confirmation'}
+                                            aria-pressed={showPasswordConfirmation}
+                                            className={toggleClass}
+                                        >
+                                            {showPasswordConfirmation ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                        </button>
                                     </div>
                                     <InputError message={errors.password_confirmation} />
                                 </div>
@@ -411,6 +442,10 @@ export default function Register() {
                                         <option value="BHS">Midwife</option>
                                         <option value="Public Health Nurse">Public Health Nurse</option>
                                         <option value="Doctor">Doctor</option>
+                                        <option value="Sanitation Inspector">Sanitation Inspector</option>
+                                        <option value="Municipal Nutrition Action Officer">Municipal Nutrition Action Officer</option>
+                                        <option value="Med Tech">Med Tech</option>
+                                        <option value="FHSIS Coordinator">FHSIS Coordinator</option>
                                     </select>
                                     <InputError message={errors.role} />
                                 </div>

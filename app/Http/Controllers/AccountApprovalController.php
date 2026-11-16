@@ -19,7 +19,8 @@ use Inertia\Response;
  */
 class AccountApprovalController extends Controller
 {
-    private const ROLES = ['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'];
+    private const ROLES = ['Administrator', 'DOH', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW',
+        'Sanitation Inspector', 'Municipal Nutrition Action Officer', 'Med Tech', 'FHSIS Coordinator'];
 
     private const ROLE_LABELS = ['BHS' => 'Midwife'];
 

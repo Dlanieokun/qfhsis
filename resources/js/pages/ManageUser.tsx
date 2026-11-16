@@ -4,7 +4,18 @@ import { Head, router } from '@inertiajs/react';
 import { KeyRound, MapPin, Power, Search, ShieldCheck, UserCheck, UserMinus, Users, X } from 'lucide-react';
 import { useState } from 'react';
 
-type Role = 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH' | 'PHO';
+type Role =
+    | 'Administrator'
+    | 'Doctor'
+    | 'Public Health Nurse'
+    | 'BHS'
+    | 'BHW'
+    | 'DOH'
+    | 'PHO'
+    | 'Sanitation Inspector'
+    | 'Municipal Nutrition Action Officer'
+    | 'Med Tech'
+    | 'FHSIS Coordinator';
 type Status = 'Active' | 'Inactive';
 
 interface User {
@@ -42,6 +53,10 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
     { value: 'Public Health Nurse', label: 'Public Health Nurse' },
     { value: 'BHS', label: 'Midwife' },
     { value: 'BHW', label: 'BHW' },
+    { value: 'Sanitation Inspector', label: 'Sanitation Inspector' },
+    { value: 'Municipal Nutrition Action Officer', label: 'Municipal Nutrition Action Officer' },
+    { value: 'Med Tech', label: 'Med Tech' },
+    { value: 'FHSIS Coordinator', label: 'FHSIS Coordinator' },
 ];
 
 const roleLabel = (role: Role) => ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
@@ -127,6 +142,10 @@ export default function ManageUser({ users = [], filters }: ManageUserProps) {
             BHW: 'bg-purple-50 text-purple-700 border-purple-100',
             DOH: 'bg-cyan-50 text-cyan-700 border-cyan-100',
             PHO: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+            'Sanitation Inspector': 'bg-teal-50 text-teal-700 border-teal-100',
+            'Municipal Nutrition Action Officer': 'bg-lime-50 text-lime-700 border-lime-100',
+            'Med Tech': 'bg-sky-50 text-sky-700 border-sky-100',
+            'FHSIS Coordinator': 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100',
         };
         return (
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[role] || 'bg-slate-50 text-slate-700 border-slate-100'}`}>

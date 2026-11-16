@@ -40,6 +40,10 @@ const ROLES = [
     { value: 'Public Health Nurse', label: 'Public Health Nurse' },
     { value: 'BHS', label: 'Midwife' },
     { value: 'BHW', label: 'BHW' },
+    { value: 'Sanitation Inspector', label: 'Sanitation Inspector' },
+    { value: 'Municipal Nutrition Action Officer', label: 'Municipal Nutrition Action Officer' },
+    { value: 'Med Tech', label: 'Med Tech' },
+    { value: 'FHSIS Coordinator', label: 'FHSIS Coordinator' },
 ];
 
 const parseArray = (val: unknown): string[] => {
