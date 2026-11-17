@@ -128,6 +128,63 @@ class SyncController extends Controller
     ];
 
     // ─────────────────────────────────────────────────────────────
+    //  Role-scoped tables (PULL filtering)
+    // ─────────────────────────────────────────────────────────────
+    //  Keeps a pull limited to the services the user's role can see in the
+    //  Android app (mirrors OtherServicesFragment::applyRoleVisibility()).
+    //  Roles not listed here (e.g. Public Health Nurse) pull everything.
+    //  The address lookups are always sent. Tables outside the user's
+    //  modules are streamed as empty arrays so the JSON shape is unchanged.
+    private array $roleModules = [
+        'BHW'                                => ['profiling'],
+        'Sanitation Inspector'               => ['profiling', 'wash'],
+        'Doctor'                             => ['oral_health'],
+        'Municipal Nutrition Action Officer' => ['child_nutrition'],
+        'Med Tech'                           => ['profiling', 'idpcs'],
+    ];
+
+    // module => tablesMapping JSON keys it owns
+    private array $moduleTables = [
+        'profiling'       => ['householdProfiles', 'classificationEntities'],
+        'wash'            => ['environmentalHealthRecords'],
+        'oral_health'     => ['oralHealthCareRecords'],
+        'child_nutrition' => ['childNutritionRecords'],
+        'idpcs'           => [
+            'filariasisRegistryRecords', 'leprosyRegistryRecords', 'rabiesRecords',
+            'schistosomiasisRegistryRecords', 'sthRegistryRecords',
+        ],
+    ];
+
+    // Reference data a module needs even though its own screen doesn't show it:
+    // these tables point at household_profiles (profile_id / profileId).
+    private array $moduleReferenceTables = [
+        'wash'            => ['householdProfiles'],
+        'oral_health'     => ['householdProfiles'],
+        'child_nutrition' => ['householdProfiles'],
+    ];
+
+    private array $alwaysPulledKeys = ['regions', 'provinces', 'municipalities', 'barangays'];
+
+    /** JSON keys the role may pull, or null when the role is unrestricted. */
+    private function allowedPullKeys(?string $role): ?array
+    {
+        if ($role === null || !isset($this->roleModules[$role])) {
+            return null;
+        }
+
+        $keys = $this->alwaysPulledKeys;
+        foreach ($this->roleModules[$role] as $module) {
+            $keys = array_merge(
+                $keys,
+                $this->moduleTables[$module] ?? [],
+                $this->moduleReferenceTables[$module] ?? []
+            );
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    // ─────────────────────────────────────────────────────────────
     //  Parent → child FK remapping (PUSH)
     // ─────────────────────────────────────────────────────────────
     //  When a newInsert parent row is pushed, its Android-local id is
@@ -1130,9 +1187,10 @@ class SyncController extends Controller
 
         $tablesMapping = $this->tablesMapping;
         $controller = $this;
+        $allowedKeys = $this->allowedPullKeys($user->role ?? null);
 
         $response = new StreamedResponse(
-            function () use ($lastSyncedAt, $user, $tablesMapping, $controller) {
+            function () use ($lastSyncedAt, $user, $tablesMapping, $controller, $allowedKeys) {
                 echo '{"status":"success","synced_at":' . json_encode(now()->toISOString()) . ',"data":{';
 
                 $firstTable = true;
@@ -1143,7 +1201,8 @@ class SyncController extends Controller
                     try {
                         $query = DB::table($dbTableName);
 
-                        $skipTable = false;
+                        // Role scope: tables outside the user's modules stream as []
+                        $skipTable = ($allowedKeys !== null && !in_array($jsonKey, $allowedKeys, true));
                         if ($lastSyncedAt) {
                             if (Schema::hasColumn($dbTableName, 'updated_at')) {
                                 $query->where('updated_at', '>', $lastSyncedAt);
