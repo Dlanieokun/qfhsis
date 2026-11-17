@@ -15,7 +15,18 @@ interface User {
     username?: string;
     email: string;
     contact_number?: string | null;
-    role: 'Administrator' | 'Doctor' | 'Public Health Nurse' | 'BHS' | 'BHW' | 'DOH' | 'PHO';
+    role:
+        | 'Administrator'
+        | 'Doctor'
+        | 'Public Health Nurse'
+        | 'BHS'
+        | 'BHW'
+        | 'DOH'
+        | 'PHO'
+        | 'Sanitation Inspector'
+        | 'Municipal Nutrition Action Officer'
+        | 'Med Tech'
+        | 'FHSIS Coordinator';
     status: 'Active' | 'Inactive';
     allow?: boolean;
     assigned_facility?: string;
@@ -358,6 +369,10 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
             'BHW': 'bg-purple-50 text-purple-700 border-purple-100/80',
             'DOH': 'bg-cyan-50 text-cyan-700 border-cyan-100/80',
             'PHO': 'bg-indigo-50 text-indigo-700 border-indigo-100/80',
+            'Sanitation Inspector': 'bg-teal-50 text-teal-700 border-teal-100/80',
+            'Municipal Nutrition Action Officer': 'bg-lime-50 text-lime-700 border-lime-100/80',
+            'Med Tech': 'bg-sky-50 text-sky-700 border-sky-100/80',
+            'FHSIS Coordinator': 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100/80',
         };
         return (
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[role] || 'bg-slate-50 text-slate-700 border-slate-100'}`}>
@@ -618,6 +633,10 @@ export default function UserManagement({ users = [], filters }: UserManagementPr
                                             <option value="Public Health Nurse">Public Health Nurse</option>
                                             <option value="BHS">Midwife</option>
                                             <option value="BHW">BHW</option>
+                                            <option value="Sanitation Inspector">Sanitation Inspector</option>
+                                            <option value="Municipal Nutrition Action Officer">Municipal Nutrition Action Officer</option>
+                                            <option value="Med Tech">Med Tech</option>
+                                            <option value="FHSIS Coordinator">FHSIS Coordinator</option>
                                         </select>
                                     </div>
 

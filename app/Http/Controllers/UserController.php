@@ -52,7 +52,7 @@ class UserController extends Controller
             'username' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._-]+$/', 'unique:users,username'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
             'contact_number' => ['nullable', 'string', 'max:20', 'regex:/^[0-9+\-\s]+$/'],
-            'role' => ['required', Rule::in(['Administrator', 'DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
+            'role' => ['required', Rule::in(['Administrator', 'DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW', 'Sanitation Inspector', 'Municipal Nutrition Action Officer', 'Med Tech', 'FHSIS Coordinator'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
 
@@ -82,7 +82,7 @@ class UserController extends Controller
             'username' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._-]+$/', Rule::unique('users', 'username')->ignore($user->id)],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'contact_number' => ['nullable', 'string', 'max:20', 'regex:/^[0-9+\-\s]+$/'],
-            'role' => ['required', Rule::in(['Administrator', 'DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
+            'role' => ['required', Rule::in(['Administrator', 'DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW', 'Sanitation Inspector', 'Municipal Nutrition Action Officer', 'Med Tech', 'FHSIS Coordinator'])],
             'status' => ['required', Rule::in(['Active', 'Inactive'])],
             'assigned_facility' => ['nullable', 'string', 'max:255'],
 
@@ -157,7 +157,7 @@ class UserController extends Controller
         $this->scopedUsers($me)->whereKey($user->id)->firstOrFail();
 
         $validated = $request->validate([
-            'role' => ['required', Rule::in(['DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW'])],
+            'role' => ['required', Rule::in(['DOH', 'PHO', 'Doctor', 'Public Health Nurse', 'BHS', 'BHW', 'Sanitation Inspector', 'Municipal Nutrition Action Officer', 'Med Tech', 'FHSIS Coordinator'])],
         ]);
 
         $user->update($validated);
